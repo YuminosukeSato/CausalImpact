@@ -23,6 +23,7 @@ pub struct GibbsSamples {
 
 #[pyfunction]
 #[pyo3(signature = (y, x, pre_end, niter, nwarmup, nchains, seed, prior_level_sd))]
+#[allow(clippy::too_many_arguments)]
 fn run_gibbs_sampler(
     y: Vec<f64>,
     x: Option<&Bound<'_, PyList>>,
@@ -55,7 +56,7 @@ fn run_gibbs_sampler(
         seed,
         prior_level_sd,
     )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+    .map_err(pyo3::exceptions::PyValueError::new_err)?;
 
     Ok(GibbsSamples {
         states: result.states,
