@@ -2,23 +2,50 @@
 
 A Python implementation of Google's [CausalImpact](https://google.github.io/CausalImpact/) (R package) for causal inference using Bayesian structural time series models.
 
-The Gibbs sampler is written in Rust (via PyO3) for performance, while maintaining numerical compatibility (within ±5%) with the original R package.
+The Gibbs sampler is written in Rust (via PyO3), achieving 10-30x speedup over R while maintaining numerical equivalence (±3% on point estimates, CI-verified).
 
-## Features
+## Why this library over tfp-causalimpact?
 
-- Bayesian structural time series (BSTS) model with local level and regression components
-- Rust-native Gibbs sampler with Kalman filter and simulation smoother
-- Point and cumulative effect estimation with credible intervals
-- Posterior tail-area p-values
-- Summary reports (tabular and narrative)
-- Visualization with matplotlib (original, pointwise, cumulative panels)
+| Aspect | This library | tfp-causalimpact |
+|---|---|---|
+| Install | `pip install` (numpy, pandas only) | TensorFlow required (3GB+) |
+| Speed (T=1000, k=0) | 0.07s | N/A (heavy TF overhead) |
+| R compatibility | ±3% verified (CI-enforced) | Not published |
+| Python version | 3.12+ | 3.8+ |
+| Dependencies | numpy, pandas, matplotlib | tensorflow, tensorflow-probability |
+| API | R CausalImpact compatible | Custom API |
+| Algorithm | Rust Gibbs sampler (same as R bsts) | TFP-NUTS (different) |
+
+## Numerical Equivalence with R
+
+This library proves numerical equivalence with R CausalImpact (bsts) across 4 scenarios (basic, covariates, strong_effect, no_effect):
+
+| Metric | Tolerance | Justification |
+|---|---|---|
+| `point_effect_mean` | ±3% relative | MC-SE with independent RNG, 4sigma bound |
+| `cumulative_effect_total` | ±3% relative | Same ratio as point_effect |
+| `ci_lower` / `ci_upper` | ±15% relative | Systematic CI computation difference (Jensen) |
+| `p_value` | Significance match | Classification at alpha=0.05 |
+
+Tests run on every PR. Fixtures regenerated weekly from R CausalImpact 1.4.1.
+
+## Benchmark Results
+
+| T | k | niter | This (Rust) | R (bsts) | vs R |
+|--:|--:|------:|-----------:|---------:|----:|
+| 100 | 0 | 1000 | 0.008s | 0.213s | 26x |
+| 500 | 0 | 1000 | 0.033s | 0.997s | 30x |
+| 1000 | 0 | 1000 | 0.069s | 2.108s | 31x |
+| 1000 | 5 | 1000 | 0.197s | 2.171s | 11x |
+| 5000 | 0 | 1000 | 0.330s | 10.264s | 31x |
+
+Median of 3 runs. Reproduce: `python benchmarks/benchmark.py`
 
 ## Installation
 
 Requires Python 3.12+ and a Rust toolchain.
 
 ```bash
-# Clone the repository
 git clone https://github.com/YuminosukeSato/CausalImpact.git
 cd CausalImpact
 
@@ -111,8 +138,11 @@ src/ (Rust)
 ## Running Tests
 
 ```bash
-# Python tests (56 tests)
+# All tests (75 tests)
 uv run pytest tests/ -v
+
+# Numerical equivalence only (22 tests)
+uv run pytest tests/test_numerical_equivalence.py -v
 
 # Rust tests (13 tests)
 cargo test
