@@ -10,10 +10,14 @@ def _make_results(effect=2.0, p_value=0.01):
     t_post = 10
     return CausalImpactResults(
         point_effects=np.full(t_post, effect),
+        point_effect_lower=np.full(t_post, effect * 0.75),
+        point_effect_upper=np.full(t_post, effect * 1.25),
         ci_lower=effect * 0.5,
         ci_upper=effect * 1.5,
         point_effect_mean=effect,
         cumulative_effect=np.cumsum(np.full(t_post, effect)),
+        cumulative_effect_lower=np.cumsum(np.full(t_post, effect * 0.75)),
+        cumulative_effect_upper=np.cumsum(np.full(t_post, effect * 1.25)),
         cumulative_effect_total=effect * t_post,
         relative_effect_mean=effect / 10.0,
         p_value=p_value,
@@ -49,6 +53,14 @@ class TestSummaryFormat:
         result = _make_results(effect=2.0, p_value=0.01)
         text = SummaryFormatter.summary(result, digits=10)
         assert isinstance(text, str)
+
+    def test_summary_shows_cumulative_ci_in_95_percent_ci_row(self):
+        """95% CI 行の cumulative 列には最終時点の累積CIを表示する."""
+        result = _make_results(effect=2.0, p_value=0.01)
+        text = SummaryFormatter.summary(result, digits=2)
+        ci_line = next(line for line in text.split("\n") if "95% CI" in line)
+        assert "15.00" in ci_line
+        assert "25.00" in ci_line
 
 
 class TestReportContent:

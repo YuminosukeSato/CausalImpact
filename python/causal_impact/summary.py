@@ -15,6 +15,10 @@ class SummaryFormatter:
         avg_effect = format(results.point_effect_mean, fmt)
         avg_ci = f"[{format(results.ci_lower, fmt)}, {format(results.ci_upper, fmt)}]"
         cum_effect = format(results.cumulative_effect_total, fmt)
+        cum_ci = (
+            f"[{format(results.cumulative_effect_lower[-1], fmt)}, "
+            f"{format(results.cumulative_effect_upper[-1], fmt)}]"
+        )
         rel_effect = format(results.relative_effect_mean * 100, fmt)
         p_val = format(results.p_value, f".{max(digits, 3)}f")
 
@@ -24,7 +28,7 @@ class SummaryFormatter:
             "                         Average        Cumulative",
             "Actual                   -              -",
             "Prediction (s.d.)        -              -",
-            f"95% CI                   {avg_ci}       -",
+            f"95% CI                   {avg_ci}       {cum_ci}",
             "",
             f"Absolute effect (mean)   {avg_effect}           {cum_effect}",
             f"Relative effect          {rel_effect}%",

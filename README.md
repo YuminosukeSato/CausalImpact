@@ -2,7 +2,7 @@
 
 A Python implementation of Google's [CausalImpact](https://google.github.io/CausalImpact/) (R package) for causal inference using Bayesian structural time series models.
 
-The Gibbs sampler is written in Rust (via PyO3), achieving 10-30x speedup over R while maintaining numerical equivalence (±3% on point estimates, CI-verified).
+The Gibbs sampler is written in Rust (via PyO3), achieving 10-30x speedup over R while maintaining numerical equivalence on no-covariate scenarios and documented parity gaps for covariate scenarios.
 
 ## Why this library over tfp-causalimpact?
 
@@ -18,15 +18,17 @@ The Gibbs sampler is written in Rust (via PyO3), achieving 10-30x speedup over R
 
 ## Numerical Equivalence with R
 
-This library proves numerical equivalence with R CausalImpact (bsts) across 4 scenarios (basic, covariates, strong_effect, no_effect):
+This library verifies numerical equivalence with R CausalImpact (bsts) across 4 scenarios (basic, covariates, strong_effect, no_effect):
 
 | Metric | Tolerance | Justification |
 |---|---|---|
 | `point_effect_mean` | ±3% relative | MC-SE with independent RNG, 4sigma bound |
 | `cumulative_effect_total` | ±3% relative | Same ratio as point_effect |
-| `ci_lower` / `ci_upper` | ±15% relative | Systematic CI computation difference (Jensen) |
+| `ci_lower` / `ci_upper` (no covariates) | ±1% relative | R-compatible local-level prior + post-period state propagation |
+| `ci_lower` / `ci_upper` (covariates) | ±10% relative | Phase 2 spike-and-slab parity is still pending |
 | `p_value` | Significance match | Classification at alpha=0.05 |
 
+The covariates scenario still has known point/cumulative parity gaps until the spike-and-slab implementation is aligned with R.
 Tests run on every PR. Fixtures regenerated weekly from R CausalImpact 1.4.1.
 
 ## Benchmark Results
