@@ -31,6 +31,16 @@ class TestSamplerShapes:
         assert len(result.states) == 40
         assert len(result.sigma_obs) == 40
 
+    def test_sampler_keeps_post_period_states_non_constant_because_random_walk_uncertainty_must_propagate(self):
+        y = [10.0 + 0.2 * i for i in range(40)]
+        result = run_gibbs_sampler(
+            y=y, x=None, pre_end=25, niter=5, nwarmup=2, nchains=1,
+            seed=42, prior_level_sd=0.1,
+        )
+        post_states = result.states[0][25:]
+        rounded_unique_states = {round(state, 9) for state in post_states}
+        assert len(rounded_unique_states) > 1
+
 
 class TestSamplerReproducibility:
     """シード固定での再現性."""

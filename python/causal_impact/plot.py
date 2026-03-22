@@ -71,6 +71,13 @@ class Plotter:
     @staticmethod
     def _plot_pointwise(ax, post_index, results):
         ax.plot(post_index, results.point_effects, color="blue", linewidth=1)
+        ax.fill_between(
+            post_index,
+            results.point_effect_lower,
+            results.point_effect_upper,
+            alpha=0.2,
+            color="blue",
+        )
         ax.axhline(y=0, color="gray", linestyle="-", alpha=0.5)
         ax.set_ylabel("Point Effect")
         ax.set_title("Pointwise")
@@ -78,6 +85,13 @@ class Plotter:
     @staticmethod
     def _plot_cumulative(ax, post_index, results):
         ax.plot(post_index, results.cumulative_effect, color="blue", linewidth=1)
+        ax.fill_between(
+            post_index,
+            results.cumulative_effect_lower,
+            results.cumulative_effect_upper,
+            alpha=0.2,
+            color="blue",
+        )
         ax.axhline(y=0, color="gray", linestyle="-", alpha=0.5)
         ax.set_ylabel("Cumulative Effect")
         ax.set_title("Cumulative")
