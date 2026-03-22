@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== pre-push: cargo test ==="
+cargo test
+
+echo "=== pre-push: pytest ==="
+if [ -f .venv/bin/pytest ]; then
+  .venv/bin/pytest tests/ --tb=short -q
+else
+  echo "pre-push: pytest not found, skipping (CI will catch)"
+fi

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v ruff &>/dev/null; then
+  ruff check .
+elif [ -f .venv/bin/ruff ]; then
+  .venv/bin/ruff check .
+else
+  echo "pre-commit: ruff not found, skipping (CI will catch)"
+fi
