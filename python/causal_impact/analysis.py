@@ -12,10 +12,14 @@ class CausalImpactResults:
     """Results of causal impact analysis."""
 
     point_effects: np.ndarray  # (T_post,) mean effect per time point
+    point_effect_lower: np.ndarray  # (T_post,) lower CI per time point
+    point_effect_upper: np.ndarray  # (T_post,) upper CI per time point
     ci_lower: float  # lower CI bound on average effect
     ci_upper: float  # upper CI bound on average effect
     point_effect_mean: float  # mean of point effects across time
     cumulative_effect: np.ndarray  # (T_post,) cumulative point effects
+    cumulative_effect_lower: np.ndarray  # (T_post,) lower cumulative CI
+    cumulative_effect_upper: np.ndarray  # (T_post,) upper cumulative CI
     cumulative_effect_total: float  # total cumulative effect
     relative_effect_mean: float  # relative effect (effect / predicted)
     p_value: float  # Bayesian one-sided tail probability
@@ -48,9 +52,11 @@ class CausalAnalysis:
         # Point effects: mean across samples at each time point
         point_effects = effects.mean(axis=0)  # (t_post,)
 
-        # CI on average effect
+        # Summary-table CI on average effect uses sample-average quantiles.
         lower_q = alpha / 2
         upper_q = 1 - alpha / 2
+        point_effect_lower = np.percentile(effects, 100 * lower_q, axis=0)
+        point_effect_upper = np.percentile(effects, 100 * upper_q, axis=0)
         ci_lower = float(np.percentile(avg_effects, 100 * lower_q))
         ci_upper = float(np.percentile(avg_effects, 100 * upper_q))
 
@@ -59,6 +65,17 @@ class CausalAnalysis:
 
         # Cumulative effect
         cumulative_effect = np.cumsum(point_effects)
+        cum_effects_samples = np.cumsum(effects, axis=1)
+        cumulative_effect_lower = np.percentile(
+            cum_effects_samples,
+            100 * lower_q,
+            axis=0,
+        )
+        cumulative_effect_upper = np.percentile(
+            cum_effects_samples,
+            100 * upper_q,
+            axis=0,
+        )
         cumulative_effect_total = float(cumulative_effect[-1])
 
         # Relative effect
@@ -83,10 +100,14 @@ class CausalAnalysis:
 
         return CausalImpactResults(
             point_effects=point_effects,
+            point_effect_lower=point_effect_lower,
+            point_effect_upper=point_effect_upper,
             ci_lower=ci_lower,
             ci_upper=ci_upper,
             point_effect_mean=point_effect_mean,
             cumulative_effect=cumulative_effect,
+            cumulative_effect_lower=cumulative_effect_lower,
+            cumulative_effect_upper=cumulative_effect_upper,
             cumulative_effect_total=cumulative_effect_total,
             relative_effect_mean=relative_effect_mean,
             p_value=p_value,

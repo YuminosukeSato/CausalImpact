@@ -17,10 +17,14 @@ def _make_results_with_index():
     time_index = pd.date_range("2020-01-01", periods=t_total, freq="D")
     results = CausalImpactResults(
         point_effects=np.full(t_post, 2.0),
+        point_effect_lower=np.full(t_post, 1.5),
+        point_effect_upper=np.full(t_post, 2.5),
         ci_lower=1.0,
         ci_upper=3.0,
         point_effect_mean=2.0,
         cumulative_effect=np.cumsum(np.full(t_post, 2.0)),
+        cumulative_effect_lower=np.cumsum(np.full(t_post, 1.5)),
+        cumulative_effect_upper=np.cumsum(np.full(t_post, 2.5)),
         cumulative_effect_total=60.0,
         relative_effect_mean=0.2,
         p_value=0.01,
@@ -64,3 +68,21 @@ class TestPlot:
             lines = ax.get_lines()
             # At least the intervention vertical line should be present
             assert len(lines) >= 1
+
+    def test_plot_pointwise_panel_draws_ci_band(self):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        results, y, time_index, t_pre = _make_results_with_index()
+        fig = Plotter.plot(results, y, time_index, t_pre, metrics=["pointwise"])
+        ax = fig.get_axes()[0]
+        assert len(ax.collections) == 1
+
+    def test_plot_cumulative_panel_draws_ci_band(self):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        results, y, time_index, t_pre = _make_results_with_index()
+        fig = Plotter.plot(results, y, time_index, t_pre, metrics=["cumulative"])
+        ax = fig.get_axes()[0]
+        assert len(ax.collections) == 1
