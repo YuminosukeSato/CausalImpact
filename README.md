@@ -122,6 +122,9 @@ Tests run on every commit with seed-fixed MCMC for deterministic reproduction.
 | Dynamic regression | Supported | Time-varying coefficients via random-walk FFBS; `dynamic_regression=True` |
 | Local linear trend | Supported | Opt in with `state_model="local_linear_trend"` |
 
+Matching = CI-enforced numerical equivalence with R bsts (±3% or tighter).
+Supported = Feature implemented, no R parity fixture yet.
+
 Covariate CI bounds are enforced twice: the legacy parity fixture remains tighter than
 Phase 2 requirements, and a separate Phase 2 acceptance test keeps the threshold at `±3%`.
 

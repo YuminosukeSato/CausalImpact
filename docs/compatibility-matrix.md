@@ -18,7 +18,7 @@ Comparison of features between R CausalImpact (bsts 1.4.1) and this Python imple
 |---|---|---|---|
 | niter | Yes | Yes | Same default (1000) |
 | nseasons | Yes | Yes | `ModelOptions.nseasons` or `model_args["nseasons"]` |
-| season.duration | Yes | Yes | `ModelOptions.season_duration` or `model_args["season.duration"]` |
+| season.duration | Yes | Yes | `ModelOptions.season_duration` or `model_args["season_duration"]` (R compat: `"season.duration"`) |
 | prior.level.sd | Yes | Yes | Same default (0.01) |
 | standardize.data | Yes | Yes | Same default (True) |
 | expected.model.size | Yes | Yes | Unified default `2` |
