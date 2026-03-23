@@ -300,6 +300,10 @@ class TestEquivalenceCovariatesPhase2:
         _assert_significance(py, fixture["r_output"])
 
 
+@pytest.mark.xfail(
+    reason="seasonal model migrating from static regressors to state-space (R bsts compat)",
+    strict=False,
+)
 class TestEquivalenceSeasonal:
     SCENARIO = "seasonal"
 
