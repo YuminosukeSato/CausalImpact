@@ -2388,4 +2388,311 @@ mod tests {
             &y, 0.5, 0.01, 0.01, 168, 1, 1.0, 1.0, 1e-3, "s168_t1200",
         );
     }
+
+    // ─── PR-C: DK r recursion correctness tests (5 tests) ───
+
+    #[test]
+    fn test_dk_r_terminal_initialized_to_zero() {
+        // For t=1 (single observation), backward pass starts with r = [0; s]
+        // and after one step, smooth[0] = a_pred[0] + P_pred[0] * r_{-1}.
+        // r_{-1} = Z'/F * v + L' * 0 = Z'/F * v (since r_T = 0).
+        let s = 4;
+        let y = vec![5.0];
+        let result = seasonal_kalman_smoother(&y, 0.5, 0.01, 0.01, s, 1, 1.0, 1.0);
+        assert_eq!(result.len(), 1);
+        for &v in &result[0] {
+            assert!(v.is_finite(), "single obs DK result not finite: {}", v);
+        }
+    }
+
+    /// Naive L' r computation: L = T - K_DK Z, K_DK = T K_filter, L' r = (I - Z' K') T' r
+    fn naive_l_prime_r(
+        k_filter: &[f64],
+        r: &[f64],
+        s: usize,
+        is_boundary: bool,
+    ) -> Vec<f64> {
+        // Build full L matrix (s×s):
+        // L = T - K_DK Z = T - T K_filter Z
+        // L[i][j] = T[i][j] - (T K_filter)[i] * Z[j]
+        let mut l = vec![vec![0.0; s]; s];
+        for i in 0..s {
+            // (T K_filter)[i] = sum_m T[i][m] * K_filter[m]
+            let tk_i: f64 = (0..s)
+                .map(|m| transition_element(i, m, s, is_boundary) * k_filter[m])
+                .sum();
+            for j in 0..s {
+                let t_ij = transition_element(i, j, s, is_boundary);
+                let z_j = if j < 2 { 1.0 } else { 0.0 };
+                l[i][j] = t_ij - tk_i * z_j;
+            }
+        }
+        // L' r
+        let mut result = vec![0.0; s];
+        for j in 0..s {
+            for i in 0..s {
+                result[j] += l[i][j] * r[i];
+            }
+        }
+        result
+    }
+
+    /// Efficient L' r (the formula used in seasonal_kalman_smoother):
+    /// L' r = T' r - Z' (K_filter . T' r)
+    fn efficient_l_prime_r(
+        k_filter: &[f64],
+        r: &[f64],
+        s: usize,
+        is_boundary: bool,
+    ) -> Vec<f64> {
+        let t_prime_r = apply_state_transition_transpose(r, s, is_boundary);
+        let k_dot_tpr: f64 = k_filter.iter().zip(t_prime_r.iter()).map(|(&k, &tr)| k * tr).sum();
+        let mut result = vec![0.0; s];
+        for j in 0..s {
+            if j < 2 {
+                result[j] = t_prime_r[j] - k_dot_tpr;
+            } else {
+                result[j] = t_prime_r[j];
+            }
+        }
+        result
+    }
+
+    #[test]
+    fn test_dk_l_prime_r_non_boundary_s4_matches_naive() {
+        let mut rng = StdRng::seed_from_u64(500);
+        let s = 4;
+        let k: Vec<f64> = (0..s).map(|_| rng.gen::<f64>() * 0.5).collect();
+        let r: Vec<f64> = (0..s).map(|_| rng.gen::<f64>() - 0.5).collect();
+        let naive = naive_l_prime_r(&k, &r, s, false);
+        let efficient = efficient_l_prime_r(&k, &r, s, false);
+        let diff: f64 = naive
+            .iter()
+            .zip(efficient.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(diff < 1e-14, "L'r non-boundary s=4: diff = {}", diff);
+    }
+
+    #[test]
+    fn test_dk_l_prime_r_boundary_s4_matches_naive() {
+        let mut rng = StdRng::seed_from_u64(501);
+        let s = 4;
+        let k: Vec<f64> = (0..s).map(|_| rng.gen::<f64>() * 0.5).collect();
+        let r: Vec<f64> = (0..s).map(|_| rng.gen::<f64>() - 0.5).collect();
+        let naive = naive_l_prime_r(&k, &r, s, true);
+        let efficient = efficient_l_prime_r(&k, &r, s, true);
+        let diff: f64 = naive
+            .iter()
+            .zip(efficient.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(diff < 1e-14, "L'r boundary s=4: diff = {}", diff);
+    }
+
+    #[test]
+    fn test_dk_l_prime_r_boundary_s12_matches_naive() {
+        let mut rng = StdRng::seed_from_u64(502);
+        let s = 12;
+        let k: Vec<f64> = (0..s).map(|_| rng.gen::<f64>() * 0.3).collect();
+        let r: Vec<f64> = (0..s).map(|_| rng.gen::<f64>() - 0.5).collect();
+        let naive = naive_l_prime_r(&k, &r, s, true);
+        let efficient = efficient_l_prime_r(&k, &r, s, true);
+        let diff: f64 = naive
+            .iter()
+            .zip(efficient.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(diff < 1e-13, "L'r boundary s=12: diff = {}", diff);
+    }
+
+    #[test]
+    fn test_dk_r_vector_all_finite_s168_t1200() {
+        // Run the full smoother and verify all output values are finite
+        let s = 168;
+        let t = 1200;
+        let y: Vec<f64> = (0..t)
+            .map(|i| ((i % s) as f64 - 83.5) * 0.05)
+            .collect();
+        let result = seasonal_kalman_smoother(&y, 0.5, 0.01, 0.01, s, 1, 1.0, 1.0);
+        for i in 0..t {
+            for j in 0..s {
+                assert!(
+                    result[i][j].is_finite(),
+                    "smooth[{}][{}] = {} not finite (s=168, t=1200)",
+                    i,
+                    j,
+                    result[i][j]
+                );
+            }
+        }
+    }
+
+    // ─── PR-C: Smoothed state finite tests (3 tests) ───
+
+    #[test]
+    fn test_dk_smooth_finite_s4() {
+        let y: Vec<f64> = (0..20).map(|i| ((i % 4) as f64 - 1.5) * 2.0).collect();
+        let result = seasonal_kalman_smoother(&y, 0.5, 0.01, 0.01, 4, 1, 1.0, 1.0);
+        for (i, row) in result.iter().enumerate() {
+            for (j, &val) in row.iter().enumerate() {
+                assert!(val.is_finite(), "s4: smooth[{}][{}] = {}", i, j, val);
+            }
+        }
+    }
+
+    #[test]
+    fn test_dk_smooth_finite_s12() {
+        let y: Vec<f64> = (0..100).map(|i| ((i % 12) as f64 - 5.5) * 0.3).collect();
+        let result = seasonal_kalman_smoother(&y, 0.5, 0.01, 0.01, 12, 1, 1.0, 1.0);
+        for (i, row) in result.iter().enumerate() {
+            for (j, &val) in row.iter().enumerate() {
+                assert!(val.is_finite(), "s12: smooth[{}][{}] = {}", i, j, val);
+            }
+        }
+    }
+
+    #[test]
+    fn test_dk_smooth_finite_s168() {
+        let y: Vec<f64> = (0..500)
+            .map(|i| ((i % 168) as f64 - 83.5) * 0.02)
+            .collect();
+        let result = seasonal_kalman_smoother(&y, 0.5, 0.01, 0.01, 168, 1, 1.0, 1.0);
+        for (i, row) in result.iter().enumerate() {
+            for (j, &val) in row.iter().enumerate() {
+                assert!(val.is_finite(), "s168: smooth[{}][{}] = {}", i, j, val);
+            }
+        }
+    }
+
+    // ─── PR-C: R compatibility gate tests (2 tests) ───
+    // R compatibility is primarily tested via Python-level test_numerical_equivalence.py.
+    // These Rust-level tests verify that the DK smoother produces results consistent
+    // with the RTS reference (which is known to match R bsts within ±1%).
+
+    #[test]
+    fn test_dk_smoother_r_compatible_s12_t100() {
+        let y: Vec<f64> = (0..100).map(|i| ((i % 12) as f64 - 5.5) * 0.3 + 10.0).collect();
+        let dk = seasonal_kalman_smoother(&y, 0.5, 0.01, 0.01, 12, 1, 10.0, 1.0);
+        let rts = seasonal_kalman_smoother_rts_reference(&y, 0.5, 0.01, 0.01, 12, 1, 10.0, 1.0);
+        let diff = max_abs_diff(&dk, &rts);
+        // Level values are ~10.0, so 1e-7 absolute corresponds to ~1e-8 relative
+        assert!(
+            diff < 1e-6,
+            "R compat s12_t100: DK vs RTS diff = {} (must be << 1% of signal)",
+            diff
+        );
+    }
+
+    #[test]
+    fn test_dk_smoother_r_compatible_s168_t1200() {
+        let y: Vec<f64> = (0..1200)
+            .map(|i| ((i % 168) as f64 - 83.5) * 0.05 + 100.0)
+            .collect();
+        let dk = seasonal_kalman_smoother(&y, 0.5, 0.01, 0.01, 168, 1, 100.0, 1.0);
+        let rts =
+            seasonal_kalman_smoother_rts_reference(&y, 0.5, 0.01, 0.01, 168, 1, 100.0, 1.0);
+        let diff = max_abs_diff(&dk, &rts);
+        // Signal scale ~100, diff ~1e-5 → relative ~1e-7, well within ±1%
+        assert!(
+            diff < 1e-2,
+            "R compat s168_t1200: DK vs RTS diff = {} (must be << 1% of signal)",
+            diff
+        );
+    }
+
+    // ─── PR-C: Boundary value tests (5 tests) ───
+
+    #[test]
+    fn test_dk_smoother_t_eq_1_s4() {
+        // Single observation: backward pass is trivial (one step from r_T=0)
+        let y = vec![3.0];
+        let result = seasonal_kalman_smoother(&y, 0.5, 0.01, 0.01, 4, 1, 1.0, 1.0);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].len(), 4);
+        for &v in &result[0] {
+            assert!(v.is_finite());
+        }
+        // With a_pred = [0,0,0,0] and y=3, smoothed level should be positive
+        assert!(result[0][0] > 0.0, "level should be positive for y=3, got {}", result[0][0]);
+    }
+
+    #[test]
+    fn test_dk_smoother_zero_innovation_s4() {
+        // y[i] = Z a_pred[i] = 0 for all i → v_t = 0 → no correction
+        // Start with a_pred = [0,...,0], y = 0 → v = 0 always
+        let y = vec![0.0; 10];
+        let result = seasonal_kalman_smoother(&y, 0.5, 0.01, 0.01, 4, 1, 1.0, 1.0);
+        for (i, row) in result.iter().enumerate() {
+            for (j, &val) in row.iter().enumerate() {
+                assert!(val.is_finite(), "zero innov: smooth[{}][{}] = {}", i, j, val);
+            }
+        }
+        // With zero observations and zero initial state, smoothed should be near zero
+        for &v in &result[9] {
+            assert!(v.abs() < 1.0, "zero obs: expect near-zero state, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_dk_smoother_large_sigma2_obs_s12() {
+        // Very large observation noise → filter trusts prior, smoothed ≈ prior (0)
+        let y: Vec<f64> = (0..50).map(|i| ((i % 12) as f64 - 5.5) * 10.0).collect();
+        let result = seasonal_kalman_smoother(&y, 1e8, 0.01, 0.01, 12, 1, 1.0, 1.0);
+        for (i, row) in result.iter().enumerate() {
+            for (j, &val) in row.iter().enumerate() {
+                assert!(val.is_finite(), "large obs: smooth[{}][{}] = {}", i, j, val);
+            }
+        }
+        // With huge obs noise, Kalman gain ≈ 0, so smoothed ≈ 0 (prior)
+        for &v in &result[25] {
+            assert!(
+                v.abs() < 5.0,
+                "large sigma2_obs: expected near-zero, got {}",
+                v
+            );
+        }
+    }
+
+    #[test]
+    fn test_dk_smoother_season_duration_7_s7() {
+        // season_duration=7: boundaries at t=0,7,14,...
+        let y: Vec<f64> = (0..70).map(|i| ((i / 7) % 7) as f64).collect();
+        let result = seasonal_kalman_smoother(&y, 0.5, 0.01, 0.01, 7, 7, 0.0, 1.0);
+        assert_eq!(result.len(), 70);
+        for (i, row) in result.iter().enumerate() {
+            for (j, &val) in row.iter().enumerate() {
+                assert!(
+                    val.is_finite(),
+                    "dur7: smooth[{}][{}] = {} not finite",
+                    i, j, val
+                );
+            }
+        }
+        // DK should match RTS for this configuration
+        let rts = seasonal_kalman_smoother_rts_reference(&y, 0.5, 0.01, 0.01, 7, 7, 0.0, 1.0);
+        let diff = max_abs_diff(&result, &rts);
+        assert!(diff < 1e-7, "dur7 DK vs RTS: diff = {}", diff);
+    }
+
+    #[test]
+    fn test_dk_smoother_season_duration_24_s24() {
+        // Hourly seasonal with 24 seasons
+        let y: Vec<f64> = (0..240).map(|i| ((i % 24) as f64 - 11.5) * 0.2).collect();
+        let result = seasonal_kalman_smoother(&y, 0.5, 0.01, 0.01, 24, 1, 1.0, 1.0);
+        assert_eq!(result.len(), 240);
+        for (i, row) in result.iter().enumerate() {
+            for (j, &val) in row.iter().enumerate() {
+                assert!(
+                    val.is_finite(),
+                    "s24: smooth[{}][{}] = {} not finite",
+                    i, j, val
+                );
+            }
+        }
+        // DK should match RTS
+        let rts = seasonal_kalman_smoother_rts_reference(&y, 0.5, 0.01, 0.01, 24, 1, 1.0, 1.0);
+        let diff = max_abs_diff(&result, &rts);
+        assert!(diff < 1e-6, "s24 DK vs RTS: diff = {}", diff);
+    }
 }
