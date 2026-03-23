@@ -2870,4 +2870,201 @@ mod tests {
         let diff = max_abs_diff(&result, &rts);
         assert!(diff < 1e-6, "s24 DK vs RTS: diff = {}", diff);
     }
+
+    // ── PR-D helpers: flat ↔ nested conversion ──────────────────────
+    fn flat_from_nested(m: &[Vec<f64>]) -> Vec<f64> {
+        let s = m.len();
+        let mut flat = vec![0.0; s * s];
+        for i in 0..s {
+            for j in 0..s {
+                flat[i * s + j] = m[i][j];
+            }
+        }
+        flat
+    }
+
+    fn nested_from_flat(flat: &[f64], s: usize) -> Vec<Vec<f64>> {
+        (0..s).map(|i| flat[i * s..(i + 1) * s].to_vec()).collect()
+    }
+
+    // ── PR-D Red tests: fused predict_state_covariance_flat ─────────
+
+    #[test]
+    fn test_fused_predict_cov_matches_original_s2_boundary() {
+        let s = 2;
+        let p_nested = random_spd(s, 206);
+        let q = q_diag_for(s, 0.01, 0.005);
+        let expected = predict_state_covariance_naive(&p_nested, &q, s, true);
+        let p_flat = flat_from_nested(&p_nested);
+        let mut out = vec![0.0; s * s];
+        let mut row_buf = vec![0.0; s];
+        predict_state_covariance_flat(&p_flat, &q, s, true, &mut out, &mut row_buf);
+        let actual = nested_from_flat(&out, s);
+        let diff = max_abs_diff(&expected, &actual);
+        assert!(diff < 1e-12, "s2 boundary: diff = {}", diff);
+    }
+
+    #[test]
+    fn test_fused_predict_cov_matches_original_s4_boundary() {
+        let s = 4;
+        let p_nested = random_spd(s, 200);
+        let q = q_diag_for(s, 0.01, 0.005);
+        let expected = predict_state_covariance_naive(&p_nested, &q, s, true);
+        let p_flat = flat_from_nested(&p_nested);
+        let mut out = vec![0.0; s * s];
+        let mut row_buf = vec![0.0; s];
+        predict_state_covariance_flat(&p_flat, &q, s, true, &mut out, &mut row_buf);
+        let actual = nested_from_flat(&out, s);
+        let diff = max_abs_diff(&expected, &actual);
+        assert!(diff < 1e-12, "s4 boundary: diff = {}", diff);
+    }
+
+    #[test]
+    fn test_fused_predict_cov_matches_original_s12_boundary() {
+        let s = 12;
+        let p_nested = random_spd(s, 201);
+        let q = q_diag_for(s, 0.01, 0.005);
+        let expected = predict_state_covariance_naive(&p_nested, &q, s, true);
+        let p_flat = flat_from_nested(&p_nested);
+        let mut out = vec![0.0; s * s];
+        let mut row_buf = vec![0.0; s];
+        predict_state_covariance_flat(&p_flat, &q, s, true, &mut out, &mut row_buf);
+        let actual = nested_from_flat(&out, s);
+        let diff = max_abs_diff(&expected, &actual);
+        assert!(diff < 1e-12, "s12 boundary: diff = {}", diff);
+    }
+
+    #[test]
+    fn test_fused_predict_cov_matches_original_s168_boundary() {
+        let s = 168;
+        let p_nested = random_spd(s, 202);
+        let q = q_diag_for(s, 0.01, 0.005);
+        let expected = predict_state_covariance_naive(&p_nested, &q, s, true);
+        let p_flat = flat_from_nested(&p_nested);
+        let mut out = vec![0.0; s * s];
+        let mut row_buf = vec![0.0; s];
+        predict_state_covariance_flat(&p_flat, &q, s, true, &mut out, &mut row_buf);
+        let actual = nested_from_flat(&out, s);
+        let diff = max_abs_diff(&expected, &actual);
+        // Tolerance scaled by max value for large matrices
+        let max_val = expected
+            .iter()
+            .flat_map(|r| r.iter())
+            .copied()
+            .fold(0.0_f64, f64::max);
+        let tol = max_val * 1e-10;
+        assert!(diff < tol, "s168 boundary: diff = {} (tol = {})", diff, tol);
+    }
+
+    #[test]
+    fn test_fused_predict_cov_nonboundary_unchanged() {
+        let s = 12;
+        let p_nested = random_spd(s, 203);
+        let q = q_diag_for(s, 0.01, 0.005);
+        let expected = predict_state_covariance_naive(&p_nested, &q, s, false);
+        let p_flat = flat_from_nested(&p_nested);
+        let mut out = vec![0.0; s * s];
+        let mut row_buf = vec![0.0; s];
+        predict_state_covariance_flat(&p_flat, &q, s, false, &mut out, &mut row_buf);
+        let actual = nested_from_flat(&out, s);
+        let diff = max_abs_diff(&expected, &actual);
+        assert!(diff < 1e-12, "nonboundary s12: diff = {}", diff);
+    }
+
+    #[test]
+    fn test_fused_predict_cov_preserves_symmetry_s52() {
+        let s = 52;
+        let p_nested = random_spd(s, 205);
+        let q = q_diag_for(s, 0.01, 0.005);
+        let p_flat = flat_from_nested(&p_nested);
+        let mut out = vec![0.0; s * s];
+        let mut row_buf = vec![0.0; s];
+        predict_state_covariance_flat(&p_flat, &q, s, true, &mut out, &mut row_buf);
+        // Exact bit-level symmetry (mirror writes, not average)
+        for i in 0..s {
+            for j in (i + 1)..s {
+                assert_eq!(
+                    out[i * s + j],
+                    out[j * s + i],
+                    "symmetry fail at ({},{}): {} vs {}",
+                    i,
+                    j,
+                    out[i * s + j],
+                    out[j * s + i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_fused_predict_cov_diagonal_positive_s168() {
+        let s = 168;
+        let p_nested = random_spd(s, 204);
+        let q = q_diag_for(s, 0.01, 0.005);
+        let p_flat = flat_from_nested(&p_nested);
+        let mut out = vec![0.0; s * s];
+        let mut row_buf = vec![0.0; s];
+        predict_state_covariance_flat(&p_flat, &q, s, true, &mut out, &mut row_buf);
+        for i in 0..s {
+            assert!(
+                out[i * s + i] > 0.0,
+                "diagonal [{}][{}] = {} not positive",
+                i,
+                i,
+                out[i * s + i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_fused_predict_cov_identity_p_s7() {
+        let s = 7;
+        let p_nested: Vec<Vec<f64>> = (0..s)
+            .map(|i| (0..s).map(|j| if i == j { 1.0 } else { 0.0 }).collect())
+            .collect();
+        let q = vec![0.0; s]; // Q = 0
+        let expected = predict_state_covariance_naive(&p_nested, &q, s, true);
+        let p_flat = flat_from_nested(&p_nested);
+        let mut out = vec![0.0; s * s];
+        let mut row_buf = vec![0.0; s];
+        predict_state_covariance_flat(&p_flat, &q, s, true, &mut out, &mut row_buf);
+        let actual = nested_from_flat(&out, s);
+        let diff = max_abs_diff(&expected, &actual);
+        assert!(diff < 1e-12, "identity P s7: diff = {}", diff);
+    }
+
+    #[test]
+    fn test_fused_predict_cov_zero_p_s4() {
+        let s = 4;
+        let p_nested = vec![vec![0.0; s]; s];
+        let q = q_diag_for(s, 0.03, 0.02);
+        let p_flat = flat_from_nested(&p_nested);
+        let mut out = vec![0.0; s * s];
+        let mut row_buf = vec![0.0; s];
+        predict_state_covariance_flat(&p_flat, &q, s, true, &mut out, &mut row_buf);
+        // With P=0, result should be diag(Q) (with F_MIN floor)
+        for i in 0..s {
+            for j in 0..s {
+                if i == j {
+                    let expected_val = q[i].max(F_MIN);
+                    assert!(
+                        (out[i * s + j] - expected_val).abs() < 1e-14,
+                        "zero P diag [{},{}]: got {} expected {}",
+                        i,
+                        j,
+                        out[i * s + j],
+                        expected_val
+                    );
+                } else {
+                    assert!(
+                        out[i * s + j].abs() < 1e-14,
+                        "zero P off-diag [{},{}] = {} not zero",
+                        i,
+                        j,
+                        out[i * s + j]
+                    );
+                }
+            }
+        }
+    }
 }
