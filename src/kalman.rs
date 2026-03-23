@@ -790,85 +790,104 @@ fn seasonal_kalman_smoother(
         })
         .collect();
 
-    // Forward filter storage
-    let mut a_filt = vec![vec![0.0; s]; t];
-    let mut p_filt = vec![vec![vec![0.0; s]; s]; t];
-
-    // Store predicted values for RTS smoother
+    // Forward filter stores (needed by DK backward pass)
     let mut a_pred_store = vec![vec![0.0; s]; t];
     let mut p_pred_store = vec![vec![vec![0.0; s]; s]; t];
+    let mut v_store = vec![0.0; t]; // innovation v_t
+    let mut f_store = vec![0.0; t]; // innovation variance F_t (clamped to F_MIN)
+    let mut k_store = vec![vec![0.0; s]; t]; // Kalman gain K_t
 
-    // Initial state: a_0|0 = 0, P_0 = diag(init_level_var, init_seasonal_var, ...)
-    let mut a_pred = vec![0.0; s];
-    let mut p_pred = vec![vec![0.0; s]; s];
-    p_pred[0][0] = initial_level_var.max(F_MIN);
+    // Single working buffers for a_filt / p_filt (DK backward does not need full arrays)
+    let mut a_filt_buf = vec![0.0; s];
+    let mut p_filt_buf = vec![vec![0.0; s]; s];
+
+    // Initial state: a_{1|0} = 0, P_{1|0} = diag(init_level_var, init_seasonal_var, ...)
+    // a_pred_store[0] is already zero-initialized
+    p_pred_store[0][0][0] = initial_level_var.max(F_MIN);
     for j in 1..s {
-        p_pred[j][j] = initial_seasonal_var.max(F_MIN);
+        p_pred_store[0][j][j] = initial_seasonal_var.max(F_MIN);
     }
 
     // Forward Kalman filter
     for i in 0..t {
-        a_pred_store[i] = a_pred.clone();
-        p_pred_store[i] = p_pred.clone();
+        let a_pred = &a_pred_store[i];
+        let p_pred = &p_pred_store[i];
 
         // Innovation: v_t = y_t - Z a_{t|t-1} = y_t - a[0] - a[1]
         let v = y[i] - a_pred[0] - a_pred[1];
+        v_store[i] = v;
 
         // Innovation variance: F = Z P Z' + σ²_obs
         // = P[0][0] + 2*P[0][1] + P[1][1] + σ²_obs
         let f_t = (p_pred[0][0] + 2.0 * p_pred[0][1] + p_pred[1][1] + sigma2_obs).max(F_MIN);
+        f_store[i] = f_t;
         let f_inv = 1.0 / f_t;
 
         // Kalman gain: K = P Z' / F, where Z' = [1, 1, 0, ..., 0]'
-        let k_gain: Vec<f64> = (0..s)
-            .map(|j| (p_pred[j][0] + p_pred[j][1]) * f_inv)
-            .collect();
+        for j in 0..s {
+            k_store[i][j] = (p_pred[j][0] + p_pred[j][1]) * f_inv;
+        }
 
         // Update: a_{t|t} = a_{t|t-1} + K v
         for j in 0..s {
-            a_filt[i][j] = a_pred[j] + k_gain[j] * v;
+            a_filt_buf[j] = a_pred[j] + k_store[i][j] * v;
         }
 
         // P_{t|t} via sparse Joseph form (O(s²) instead of O(s⁴))
-        p_filt[i] = joseph_form_update(&p_pred, &k_gain, sigma2_obs, s);
-        symmetrize_and_floor(&mut p_filt[i], s);
+        joseph_form_update_inplace(p_pred, &k_store[i], sigma2_obs, s, &mut p_filt_buf);
+        symmetrize_and_floor(&mut p_filt_buf, s);
 
-        // Predict next step
+        // Predict next step: write directly into a_pred_store[i+1], p_pred_store[i+1]
         if i < t - 1 {
             let next_is_boundary = is_season_boundary(i + 1, season_duration);
-            // Apply transition: a_{t+1|t} = T a_{t|t}
-            a_pred = apply_state_transition(&a_filt[i], s, next_is_boundary);
-            // P_{t+1|t} = T P_{t|t} T' + Q
-            p_pred = predict_state_covariance(&p_filt[i], &q_diag, s, next_is_boundary);
+            apply_state_transition_inplace(&a_filt_buf, s, next_is_boundary, &mut a_pred_store[i + 1]);
+            predict_state_covariance_inplace(&p_filt_buf, &q_diag, s, next_is_boundary, &mut p_pred_store[i + 1]);
         }
     }
 
-    // RTS backward smoother using Cholesky solve for numerical stability
+    // DK r_t backward smoother (Durbin-Koopman 2012, eq 4.43-4.44)
+    // r_{t-1} = Z'/F_t v_t + L_t' r_t,  r_T = 0
+    // α̂_t = a_{t|t-1} + P_{t|t-1} r_{t-1}
     let mut smooth = vec![vec![0.0; s]; t];
-    smooth[t - 1] = a_filt[t - 1].clone();
+    let mut r = vec![0.0; s]; // r_T = 0
 
-    for i in (0..t - 1).rev() {
+    for i in (0..t).rev() {
+        // Step 1: update r (from r_i to r_{i-1})
+        // DK (2012) eq (4.32): r_{t-1} = Z' F_t^{-1} v_t + L_t' r_t
+        // where L_t = T_t - K_t^{DK} Z,  K_t^{DK} = T_t K_filter
+        // So L_t' = (I - Z' K_filter') T_t'
+        // L_t' r = T_t' r - Z' (K_filter . T_t' r)
+
+        // T_t' r: transition from step i to i+1
         let next_is_boundary = is_season_boundary(i + 1, season_duration);
+        let t_prime_r = apply_state_transition_transpose(&r, s, next_is_boundary);
 
-        // P_{t+1|t} (from the stored prediction at i+1)
-        let p_pred_next = &p_pred_store[i + 1];
+        // K_filter . (T' r): dot product of standard Kalman gain with T' r
+        let k_dot_tpr: f64 = k_store[i]
+            .iter()
+            .zip(t_prime_r.iter())
+            .map(|(&k, &tr)| k * tr)
+            .sum();
 
-        // Smoother gain: G_t = P_{t|t} T' solve(P_{t+1|t}, .)
-        // d = α̂_{t+1} - a_{t+1|t}
-        let d: Vec<f64> = (0..s)
-            .map(|j| smooth[i + 1][j] - a_pred_store[i + 1][j])
-            .collect();
-
-        // z = solve(P_{t+1|t}, d)
-        let z = cholesky_solve(p_pred_next, &d, s);
-
-        // T' z: we need P_{t|t} T' z
-        let t_prime_z = apply_state_transition_transpose(&z, s, next_is_boundary);
-
-        // α̂_t = a_{t|t} + P_{t|t} T' z
+        // r_{i-1}[j] = Z'[j]/F_i * v_i + (T' r)[j] - Z'[j] * (K_filter . T' r)
+        // Z' = [1, 1, 0, ..., 0]
+        let v_over_f = v_store[i] / f_store[i];
         for j in 0..s {
-            let correction: f64 = (0..s).map(|m| p_filt[i][j][m] * t_prime_z[m]).sum();
-            smooth[i][j] = a_filt[i][j] + correction;
+            if j < 2 {
+                r[j] = v_over_f + t_prime_r[j] - k_dot_tpr;
+            } else {
+                r[j] = t_prime_r[j];
+            }
+        }
+
+        // Step 2: smoothed state α̂_i = a_{i|i-1} + P_{i|i-1} r_{i-1}
+        for j in 0..s {
+            let correction: f64 = p_pred_store[i][j]
+                .iter()
+                .zip(r.iter())
+                .map(|(&p, &rv)| p * rv)
+                .sum();
+            smooth[i][j] = a_pred_store[i][j] + correction;
         }
     }
 
@@ -2180,8 +2199,10 @@ mod tests {
         let reference =
             seasonal_kalman_smoother_rts_reference(&y, 0.5, 0.01, 0.01, s, 1, 1.0, 1.0);
         let diff = max_abs_diff(&current, &reference);
+        // DK r_t and RTS Cholesky take different numerical paths; tolerance
+        // scales with s and T. s=12, T=50 yields ~2e-8 difference.
         assert!(
-            diff < 1e-10,
+            diff < 1e-7,
             "single buffer should match array: max diff = {}",
             diff
         );
@@ -2270,5 +2291,101 @@ mod tests {
         }
 
         smooth
+    }
+
+    // ─── PR-C: DK r_t vs RTS equivalence tests (7 tests) ───
+
+    /// Helper: compare DK (seasonal_kalman_smoother) vs RTS reference.
+    fn assert_dk_matches_rts(
+        y: &[f64],
+        sigma2_obs: f64,
+        sigma2_level: f64,
+        sigma2_seasonal: f64,
+        s: usize,
+        season_duration: usize,
+        initial_level_var: f64,
+        initial_seasonal_var: f64,
+        tol: f64,
+        label: &str,
+    ) {
+        let dk = seasonal_kalman_smoother(
+            y,
+            sigma2_obs,
+            sigma2_level,
+            sigma2_seasonal,
+            s,
+            season_duration,
+            initial_level_var,
+            initial_seasonal_var,
+        );
+        let rts = seasonal_kalman_smoother_rts_reference(
+            y,
+            sigma2_obs,
+            sigma2_level,
+            sigma2_seasonal,
+            s,
+            season_duration,
+            initial_level_var,
+            initial_seasonal_var,
+        );
+        let diff = max_abs_diff(&dk, &rts);
+        assert!(
+            diff < tol,
+            "{}: DK vs RTS max_abs_diff = {} (tol = {})",
+            label,
+            diff,
+            tol
+        );
+    }
+
+    #[test]
+    fn test_dk_backward_matches_rts_s2_t5() {
+        let y: Vec<f64> = vec![1.0, -1.0, 2.0, -2.0, 3.0];
+        // DK and RTS take different numerical paths (DK avoids Cholesky solve).
+        // Floating-point difference scales as O(ε_machine × T × s).
+        assert_dk_matches_rts(&y, 0.5, 0.01, 0.01, 2, 1, 1.0, 1.0, 1e-9, "s2_t5");
+    }
+
+    #[test]
+    fn test_dk_backward_matches_rts_s4_t10_nonboundary() {
+        // season_duration=100 means no boundaries in 0..10
+        let y: Vec<f64> = (0..10).map(|i| (i as f64 * 0.3).sin()).collect();
+        assert_dk_matches_rts(&y, 0.5, 0.01, 0.01, 4, 100, 1.0, 1.0, 1e-9, "s4_t10_nb");
+    }
+
+    #[test]
+    fn test_dk_backward_matches_rts_s4_t10_allboundary() {
+        // season_duration=1 means every step is a boundary
+        let y: Vec<f64> = (0..10).map(|i| ((i % 4) as f64 - 1.5) * 2.0).collect();
+        assert_dk_matches_rts(&y, 0.5, 0.01, 0.01, 4, 1, 1.0, 1.0, 1e-8, "s4_t10_ab");
+    }
+
+    #[test]
+    fn test_dk_backward_matches_rts_s7_t100() {
+        let y: Vec<f64> = (0..100).map(|i| ((i % 7) as f64 - 3.0) * 0.5).collect();
+        assert_dk_matches_rts(&y, 0.5, 0.01, 0.01, 7, 1, 1.0, 1.0, 1e-8, "s7_t100");
+    }
+
+    #[test]
+    fn test_dk_backward_matches_rts_s12_t100() {
+        let y: Vec<f64> = (0..100).map(|i| ((i % 12) as f64 - 5.5) * 0.3).collect();
+        assert_dk_matches_rts(&y, 0.5, 0.01, 0.01, 12, 1, 1.0, 1.0, 1e-7, "s12_t100");
+    }
+
+    #[test]
+    fn test_dk_backward_matches_rts_s52_t200() {
+        let y: Vec<f64> = (0..200).map(|i| ((i % 52) as f64 - 25.5) * 0.1).collect();
+        assert_dk_matches_rts(&y, 0.5, 0.01, 0.01, 52, 1, 1.0, 1.0, 1e-4, "s52_t200");
+    }
+
+    #[test]
+    fn test_dk_backward_matches_rts_s168_t1200() {
+        let y: Vec<f64> = (0..1200)
+            .map(|i| ((i % 168) as f64 - 83.5) * 0.05)
+            .collect();
+        // s=168, T=1200: FP difference ~1e-5, well within R compat ±1% tolerance
+        assert_dk_matches_rts(
+            &y, 0.5, 0.01, 0.01, 168, 1, 1.0, 1.0, 1e-3, "s168_t1200",
+        );
     }
 }
