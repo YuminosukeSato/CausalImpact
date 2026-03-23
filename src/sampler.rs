@@ -1,7 +1,5 @@
 use crate::distributions::{sample_inv_gamma, sample_mvnormal, sample_normal};
-use crate::kalman::{
-    dynamic_beta_smoother, local_linear_trend_smoother, simulation_smoother,
-};
+use crate::kalman::{dynamic_beta_smoother, local_linear_trend_smoother, simulation_smoother};
 use crate::state_space::{SeasonalConfig, StateModel, StateSpaceModel};
 use rand::distributions::Bernoulli;
 use rand::rngs::StdRng;
