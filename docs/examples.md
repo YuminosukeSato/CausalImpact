@@ -192,27 +192,28 @@ the negative sum of the previous `S-1` seasons plus noise.
 
 ### Using `season_duration`
 
-When each season spans multiple time steps (e.g., daily data with weekly
-seasonality where each day of the week lasts one step), set `season_duration`
-accordingly. The seasonal transition only fires at season boundaries
+Set `season_duration > 1` when each season spans multiple time steps.
+The seasonal transition only fires at season boundaries
 (`t % season_duration == 0`); in between, the seasonal state is frozen.
 
 ```python
+# Using the same data from the seasonal example above
+
 # Daily data with 7-day weekly pattern (default: season_duration=1)
 ci = CausalImpact(
     data, pre_period, post_period,
     model_args={"nseasons": 7, "season_duration": 1, "seed": 42},
 )
 
-# Bi-weekly data with 26 two-week seasons per year
+# Monthly data with quarterly pattern (each quarter = 3 months)
 ci = CausalImpact(
     data, pre_period, post_period,
-    model_args={"nseasons": 26, "season_duration": 2, "seed": 42},
+    model_args={"nseasons": 4, "season_duration": 3, "seed": 42},
 )
 ```
 
 When `season_duration` is omitted, it defaults to 1 (every time step is a new
-season).
+season). `nseasons=1` is equivalent to no seasonal component.
 
 ---
 
