@@ -106,8 +106,7 @@ pub fn local_linear_trend_smoother<R: Rng>(
         .iter()
         .map(|value| value - initial_state_mean)
         .collect();
-    let initial_slope_variance =
-        (initial_state_variance / (t.max(1) as f64).powi(2)).max(F_MIN);
+    let initial_slope_variance = (initial_state_variance / (t.max(1) as f64).powi(2)).max(F_MIN);
 
     let mut level_plus = vec![0.0; t];
     let mut slope_plus = vec![0.0; t];
@@ -243,10 +242,7 @@ fn local_linear_trend_mean(
             smooth[i + 1][1] - a_pred_store[i + 1][1],
         ];
         let correction = matrix_vec_mul_2x2(smoother_gain, diff);
-        smooth[i] = [
-            a_filt[i][0] + correction[0],
-            a_filt[i][1] + correction[1],
-        ];
+        smooth[i] = [a_filt[i][0] + correction[0], a_filt[i][1] + correction[1]];
     }
 
     (
@@ -283,8 +279,14 @@ fn update_covariance(
     let joseph_left = matrix_mul_2x2(identity_minus_kh, predicted_covariance);
     let joseph = matrix_mul_2x2(joseph_left, transpose_2x2(identity_minus_kh));
     let observation_term = [
-        [gain[0] * gain[0] * sigma2_obs, gain[0] * gain[1] * sigma2_obs],
-        [gain[1] * gain[0] * sigma2_obs, gain[1] * gain[1] * sigma2_obs],
+        [
+            gain[0] * gain[0] * sigma2_obs,
+            gain[0] * gain[1] * sigma2_obs,
+        ],
+        [
+            gain[1] * gain[0] * sigma2_obs,
+            gain[1] * gain[1] * sigma2_obs,
+        ],
     ];
     add_matrix_2x2(joseph, observation_term)
 }
@@ -748,7 +750,8 @@ mod tests {
     }
 
     #[test]
-    fn test_local_linear_trend_smoother_tracks_linear_signal_because_slope_state_should_not_collapse() {
+    fn test_local_linear_trend_smoother_tracks_linear_signal_because_slope_state_should_not_collapse(
+    ) {
         let mut rng = StdRng::seed_from_u64(11);
         let y: Vec<f64> = (0..60).map(|i| 10.0 + 0.3 * i as f64).collect();
         let n_samples = 100;
