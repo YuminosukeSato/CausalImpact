@@ -8,7 +8,7 @@ Comparison of features between R CausalImpact (bsts 1.4.1) and this Python imple
 |---|---|---|---|
 | Local level | Yes | Yes | Identical algorithm |
 | Local linear trend | Yes | Yes | `state_model="local_linear_trend"` |
-| Seasonality | Yes | Yes | R-compatible API with seasonal fixture coverage |
+| Seasonality | Yes | Yes | State-space model matching R bsts `AddSeasonal()` |
 | Dynamic regression | Yes | Yes | `dynamic_regression=True` |
 | Regression (static) | Yes | Yes | Identical algorithm |
 
@@ -71,7 +71,7 @@ Comparison of features between R CausalImpact (bsts 1.4.1) and this Python imple
 |---|---|---|
 | point_effect_mean | ±3% relative | Passing |
 | cumulative_effect_total | ±3% relative | Passing |
-| ci_lower / ci_upper | Tight parity (`±1.5%` no-cov, `±1%` covariates, `±5%` seasonal) | Passing |
+| ci_lower / ci_upper | Tight parity (`±1%` no-cov, `±1%` covariates, `±1%` seasonal) | Passing |
 | p_value significance | Match at alpha=0.05 | Passing |
 
 Tests run against R CausalImpact 1.4.1 fixtures on every PR.
