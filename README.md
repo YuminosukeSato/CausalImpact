@@ -103,7 +103,7 @@ Tests run on every commit with seed-fixed MCMC for deterministic reproduction.
 |---|---|---|
 | `point_effect_mean` | ±3% relative | Passing on core scenarios |
 | `cumulative_effect_total` | ±3% relative | Passing on core scenarios |
-| `ci_lower` / `ci_upper` | Tight parity | `±1.5%` no-covariates, `±1%` covariates, explicit Phase 2 acceptance `±3%`, seasonal fixture `±5%` |
+| `ci_lower` / `ci_upper` | Tight parity | `±1%` no-covariates, `±1%` covariates, explicit Phase 2 acceptance `±3%`, seasonal `±1%` |
 | `p_value` | Significance match | Classification at alpha=0.05 |
 
 ### What is matching R and what is not
@@ -118,7 +118,7 @@ Tests run on every commit with seed-fixed MCMC for deterministic reproduction.
 | Spike-and-slab variable selection | Matching | Coordinate-wise sampling with StudentSpikeSlabPrior defaults (`expected.r2=0.8`, `prior.df=50`, `prior.information.weight=0.01`, `diagonal.shrinkage=0.5`) |
 | expected.model.size | Matching | Unified default `2` in `CausalImpact` and `ModelOptions` |
 | expected.r2 = 0.8, prior.df = 50 | Matching | Same documented residual variance prior defaults as BoomSpikeSlab / bsts |
-| Seasonal component (`nseasons`, `season_duration`) | Supported | R-compatible API with seasonal fixture coverage |
+| Seasonal component (`nseasons`, `season_duration`) | Matching | State-space model matching R bsts `AddSeasonal()` (±1% CI parity) |
 | Dynamic regression | Supported | Time-varying coefficients via random-walk FFBS; `dynamic_regression=True` |
 | Local linear trend | Supported | Opt in with `state_model="local_linear_trend"` |
 
