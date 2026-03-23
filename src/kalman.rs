@@ -7,6 +7,7 @@
 
 use crate::distributions::sample_normal;
 use rand::Rng;
+use rayon::prelude::*;
 
 const F_MIN: f64 = 1e-12;
 
@@ -878,16 +879,20 @@ fn seasonal_kalman_smoother(
     // DK r_t backward smoother (Durbin-Koopman 2012, eq 4.43-4.44)
     // r_{t-1} = Z'/F_t v_t + L_t' r_t,  r_T = 0
     // α̂_t = a_{t|t-1} + P_{t|t-1} r_{t-1}
-    let mut smooth = vec![vec![0.0; s]; t];
+    //
+    // Split into 2 phases:
+    //   Phase 1 (sequential): r recursion with dependency chain → store all r vectors
+    //   Phase 2 (parallel):   smooth[i] = a_pred[i] + P_pred[i] * r[i] (independent per i)
+
+    // Phase 1: sequential r_t recursion → r_store[t × s]
+    let mut r_store = vec![0.0; t * s];
     let mut r = vec![0.0; s]; // r_T = 0
     let mut t_prime_r = vec![0.0; s]; // reusable buffer for T' r
 
     for i in (0..t).rev() {
-        let a_off = i * s;
-        let p_off = i * ss;
         let k_off = i * s;
 
-        // Step 1: update r (from r_i to r_{i-1})
+        // Update r (from r_i to r_{i-1})
         let next_is_boundary = is_season_boundary(i + 1, season_duration);
         apply_state_transition_transpose_inplace(&r, s, next_is_boundary, &mut t_prime_r);
 
@@ -904,14 +909,27 @@ fn seasonal_kalman_smoother(
             }
         }
 
-        // Step 2: smoothed state α̂_i = a_{i|i-1} + P_{i|i-1} r_{i-1}
-        // Flat contiguous access for cache efficiency
-        for j in 0..s {
-            let row_off = p_off + j * s;
-            let correction: f64 = (0..s).map(|m| p_pred_flat[row_off + m] * r[m]).sum();
-            smooth[i][j] = a_pred_flat[a_off + j] + correction;
-        }
+        r_store[i * s..(i + 1) * s].copy_from_slice(&r);
     }
+
+    // Phase 2: parallel smooth[i] = a_pred[i] + P_pred[i] * r_store[i]
+    let smooth: Vec<Vec<f64>> = (0..t)
+        .into_par_iter()
+        .map(|i| {
+            let a_off = i * s;
+            let p_off = i * ss;
+            let r_off = i * s;
+            (0..s)
+                .map(|j| {
+                    let row_off = p_off + j * s;
+                    let correction: f64 = (0..s)
+                        .map(|m| p_pred_flat[row_off + m] * r_store[r_off + m])
+                        .sum();
+                    a_pred_flat[a_off + j] + correction
+                })
+                .collect()
+        })
+        .collect();
 
     smooth
 }
