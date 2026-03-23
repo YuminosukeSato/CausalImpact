@@ -319,7 +319,7 @@ fn run_single_chain_dynamic(
                 sigma2_obs,
                 &prior.beta_mean,
                 &prior.beta_precision,
-                xtx_seasonal.as_ref(),
+                xtx_seasonal.as_deref(),
             );
         }
 
@@ -422,9 +422,9 @@ fn run_single_chain_static(
     };
     let g = pre_end as f64; // Zellner's g-prior parameter
 
-    // Pre-compute X^TX for static and seasonal regression.
-    // X is constant across all Gibbs iterations, so this is computed once.
-    let xtx_static = if k > 0 {
+    // Pre-compute X^TX for static regression (not needed when spike-and-slab
+    // is active because it uses coordinate-wise sampling without XtX).
+    let xtx_static = if k > 0 && !use_spike_slab {
         Some(cross_product_matrix(model.covariates(), pre_end))
     } else {
         None
@@ -513,7 +513,7 @@ fn run_single_chain_static(
                     sigma2_obs,
                     &prior.beta_mean,
                     &prior.beta_precision,
-                    xtx_seasonal.as_ref(),
+                    xtx_seasonal.as_deref(),
                 );
             }
         } else if k > 0 || k_seasonal > 0 {
@@ -534,7 +534,7 @@ fn run_single_chain_static(
                     sigma2_obs,
                     &prior.beta_mean,
                     &prior.beta_precision,
-                    xtx_static.as_ref(),
+                    xtx_static.as_deref(),
                 );
                 for gj in gamma.iter_mut() {
                     *gj = true;
@@ -553,7 +553,7 @@ fn run_single_chain_static(
                     sigma2_obs,
                     &prior.beta_mean,
                     &prior.beta_precision,
-                    xtx_seasonal.as_ref(),
+                    xtx_seasonal.as_deref(),
                 );
             }
             let sigma_guess = static_regression_prior
@@ -821,13 +821,17 @@ fn sample_beta_with_normal_prior<R: rand::Rng>(
     sigma2_obs: f64,
     prior_mean: &[f64],
     prior_precision: &[Vec<f64>],
-    xtx_precomputed: Option<&Vec<Vec<f64>>>,
+    xtx_precomputed: Option<&[Vec<f64>]>,
 ) -> Vec<f64> {
     let k = x.len();
     // Use pre-computed X^TX if available (avoids O(k^2 T) per iteration)
-    let xtx = match xtx_precomputed {
-        Some(pre) => pre.clone(),
-        None => cross_product_matrix(x, y_pre.len()),
+    let xtx_owned;
+    let xtx_ref: &[Vec<f64>] = match xtx_precomputed {
+        Some(pre) => pre,
+        None => {
+            xtx_owned = cross_product_matrix(x, y_pre.len());
+            &xtx_owned
+        }
     };
 
     let residuals: Vec<f64> = y_pre
@@ -846,10 +850,11 @@ fn sample_beta_with_normal_prior<R: rand::Rng>(
             .sum();
     }
 
-    let mut posterior_precision = xtx;
-    for (i, row) in posterior_precision.iter_mut().enumerate() {
-        for (j, value) in row.iter_mut().enumerate() {
-            *value += prior_precision[i][j];
+    // Build posterior_precision = XtX + prior_precision without cloning XtX
+    let mut posterior_precision = vec![vec![0.0; k]; k];
+    for i in 0..k {
+        for j in 0..k {
+            posterior_precision[i][j] = xtx_ref[i][j] + prior_precision[i][j];
         }
     }
 
@@ -1138,8 +1143,6 @@ fn matrix_vector_product(matrix: &[Vec<f64>], vector: &[f64]) -> Vec<f64> {
         })
         .collect()
 }
-
-
 
 fn sample_post_period_states<R: rand::Rng>(
     rng: &mut R,
