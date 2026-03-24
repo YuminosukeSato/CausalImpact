@@ -5,7 +5,7 @@
 #   Rscript scripts/generate_r_reference.R
 #
 # Output:
-#   tests/fixtures/r_reference_{scenario}.json (4 files)
+#   tests/fixtures/r_reference_{scenario}.json (5 files)
 #
 # Why: Python Gibbs sampler (Rust) and R bsts use the same algorithm.
 #      By running both on identical data, we prove numerical equivalence.
@@ -115,6 +115,9 @@ for (name in names(scenarios)) {
 
   # Build fixture JSON
   fixture <- list(
+    r_version = R.version.string,
+    causalimpact_version = as.character(packageVersion("CausalImpact")),
+    bsts_version = as.character(packageVersion("bsts")),
     scenario = name,
     n = n,
     n_pre = n_pre,
