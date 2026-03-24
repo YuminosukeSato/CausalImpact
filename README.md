@@ -102,7 +102,7 @@ Posterior prob. of a causal effect: 99.90%
 | Spike-and-slab | Yes | Yes | Unknown | No | No |
 | Seasonal component | Yes | Yes (`nseasons`, `season_duration`) | Unknown | Yes (TFP STS) | No |
 | Dynamic regression | Yes | Yes (`dynamic_regression=True`) | Unknown | No | No |
-| R numerical test | Reference | CI-enforced | Not published | Visual comparison | Not tested |
+| R numerical test | Reference | ±1% CI-enforced + TOST/ROPE | Not published | Visual comparison (~8% diff) | Not tested |
 | Speed (T=1000) | 2.1 s | 0.07 s (30x) | Seconds | Minutes (HMC: hours) | Sub-second |
 | Python version | N/A (R) | 3.10+ | 3.8+ | 3.7-3.11 | 3.6-3.8 (stale) |
 | Last release | Active | Active | 2023 | 2025-01 | 2020-05 |
@@ -129,11 +129,32 @@ Enforced on every commit via CI.
 
 | Scenario | point_effect | cum_effect | ci_lower | ci_upper | rel_effect | p_value |
 |---|---|---|---|---|---|---|
-| basic | ±3% | ±3% | ±1% | ±1% | ±3% | alpha=0.05 |
-| covariates | ±3% | ±3% | ±1% | ±1% | ±3% | alpha=0.05 |
-| strong_effect | ±3% | ±3% | ±1% | ±1% | ±3% | alpha=0.05 |
-| no_effect | abs<2.0 | abs<2.0 | abs<2.0 | abs<2.0 | abs<0.5 | alpha=0.05 |
+| basic | ±1% | ±1% | ±1% | ±1% | ±1% | alpha=0.05 |
+| covariates | ±1% | ±1% | ±1% | ±1% | ±1% | alpha=0.05 |
+| strong_effect | ±1% | ±1% | ±1% | ±1% | ±1% | alpha=0.05 |
+| no_effect | abs<0.5 | abs<0.5 | abs<0.5 | abs<0.5 | abs<0.5 | alpha=0.05 |
 | seasonal | ±1% | ±1% | ±1% | ±1% | ±1% | alpha=0.05 |
+
+### Three-Layer Equivalence Verification
+
+No other Python CausalImpact implementation has statistical equivalence tests.
+This library provides three layers of verification, exceeding even Google's own Python port.
+
+| Layer | Method | What it proves | Reference |
+|---|---|---|---|
+| 1. Deterministic | Seed-fixed ±1% threshold | Same seed, same result, every commit | Regression testing |
+| 2. FDA TOST | 90% CI upper < delta (N=30 seeds) | Mean error is statistically below delta | Schuirmann (1987), FDA Guidance (2001) |
+| 3. Bayesian ROPE | 95% HDI within [0, delta] (N=30 seeds) | Posterior of error is practically equivalent | Kruschke (2018) AMPPS |
+
+Layer 1 runs on every commit (CI-blocking). Layers 2-3 run with `--runslow` flag.
+
+```bash
+# Layer 1: deterministic (runs in CI)
+uv run pytest tests/test_numerical_equivalence.py -v
+
+# Layers 2+3: TOST + ROPE (30 seeds x 4 scenarios, ~80s)
+uv run pytest tests/test_equivalence_tost_rope.py -v --runslow
+```
 
 ### CI Enforcement
 
@@ -147,6 +168,24 @@ Two-layer CI enforcement:
 1. Install R 4.5+ and packages: `install.packages(c("CausalImpact", "jsonlite"))`
 2. Generate R reference: `Rscript scripts/generate_r_reference.R`
 3. Run equivalence tests: `.venv/bin/pytest tests/test_numerical_equivalence.py -v`
+
+### Equivalence Verification: Comparison with Other Implementations
+
+| | R CausalImpact | bsts-causalimpact (this) | tfp-causalimpact (Google) | tfcausalimpact | pycausalimpact (dafiti) |
+|---|---|---|---|---|---|
+| R reference fixtures | N/A (is reference) | 5 scenarios, CI-enforced | None | None | None |
+| Deterministic R test | N/A | ±1% all metrics (seed=42) | None | README demo only (~8% diff) | None |
+| FDA TOST (Schuirmann 1987) | N/A | 30-seed, delta=1-2% | None | None | None |
+| Bayesian ROPE (Kruschke 2018) | N/A | 30-seed, 95% HDI in ROPE | None | None | None |
+| Self-consistency tolerance | `tolerance=0.01` | N/A | `rtol=0.2` (20%) | `assert_almost_equal` | `assert_array_equal` |
+| CI-blocking R check | N/A | Every commit + weekly live R | None | None | None |
+
+Evidence per implementation (all verified from source code, not documentation claims):
+
+- tfp-causalimpact (Google official Python port): 47 tests across 7 files. No R reference fixtures. Self-consistency checks use `rtol=0.2` (±20%) and `atol=0.01`. No R output comparison exists in the test suite. README states "designed to produce results close to the R package" but this is not verified by any automated test. ([source](https://github.com/google/tfp-causalimpact))
+- tfcausalimpact (WillianFuks): 64 tests across 7 files. `tests/fixtures/comparison_data.csv` exists but is only used in README demo, not in automated tests. The README demo itself shows ~8% difference in AbsEffect (R: -657 vs Python: -708.51). ([source](https://github.com/WillianFuks/tfcausalimpact))
+- pycausalimpact (dafiti): 62 tests across 5 files. Uses MLE (not MCMC), fundamentally different algorithm. No R comparison of any kind. Repository archived. ([source](https://github.com/dafiti/causalimpact))
+- causalimpact (jamalsenouci): 54 tests across 4 files. No R comparison. Open issue #7 reports "significantly different results from R". ([source](https://github.com/jamalsenouci/causalimpact))
 
 ### What is matching R and what is not
 
@@ -164,7 +203,7 @@ Two-layer CI enforcement:
 | Dynamic regression | Supported | Time-varying coefficients via random-walk FFBS; `dynamic_regression=True` |
 | Local linear trend | Supported | Opt in with `state_model="local_linear_trend"` |
 
-Matching = CI-enforced numerical equivalence with R bsts (±3% or tighter).
+Matching = CI-enforced numerical equivalence with R bsts (±1% or tighter).
 Supported = Feature implemented, no R parity fixture yet.
 
 ## API

@@ -5,22 +5,16 @@ Proof basis:
   -> With sufficient niter, converges to the same true posterior (MCMC ergodic theorem)
   -> Verified via metric-specific tolerance thresholds
 
-Tolerances:
-  point_effect_mean     ±3%  relative error
-  cumulative_effect     ±3%  relative error
-  relative_effect_mean  ±3%  relative error
-  ci_lower / ci_upper
-    - no-covariates     ±1.5%  relative error
-      Converged value ~0.83% at niter=50000; threshold includes ±0.5% MCMC variance.
-      Due to prior correction (SdPrior sample.size=32) +
-      post-period Random Walk propagation.
-    - covariates        ±1% relative error
-      Threshold aligned with R SpikeSlabPrior for static regression prior.
-    - Consistent with Google R source summary CI definition
+Tolerances (all ±1% or tighter):
+  point_effect_mean     ±1%  relative error  (measured <0.94% at seed=42, niter=20000)
+  cumulative_effect     ±1%  relative error  (algebraically identical to point_effect)
+  relative_effect_mean  ±1%  relative error  (measured <0.94% at seed=42, niter=20000)
+  ci_lower / ci_upper   ±1%  relative error  (measured <0.44% for all scenarios)
   p_value               Significance classification match (alpha=0.05)
 
 no_effect scenario (true_effect=0):
-  Effect near 0 causes relative error to diverge. Compared with absolute error < 2.0.
+  Effect near 0 causes relative error to diverge. Compared with absolute error < 0.5.
+  Measured absolute errors: point=0.001, ci_lower=0.010, ci_upper=0.004, cum=0.029.
 """
 
 import json
@@ -44,15 +38,12 @@ MCMC_ARGS = {
     "prior_level_sd": 0.01,
 }
 
-TOL_POINT = 0.03  # ±3% for point estimates
-# ±1.0% for no-covariates CI bounds
-# (actual error ~0.44%, MCMC variance margin included)
-TOL_CI_NO_COV = 0.01
-TOL_CI_COV = 0.01  # ±1% after aligning with the R static regression prior
-# State-space seasonal (DK simulation smoother): actual error < 0.1%
-TOL_POINT_SEASONAL = 0.01
-TOL_CI_SEASONAL = 0.01
-ABS_TOL_NO_EFFECT = 2.0  # absolute tolerance when true_effect=0
+TOL_POINT = 0.01  # ±1% for point estimates (measured <0.94%)
+TOL_CI_NO_COV = 0.01  # ±1% for no-covariates CI bounds (measured <0.44%)
+TOL_CI_COV = 0.01  # ±1% for covariates CI bounds (measured <0.40%)
+TOL_POINT_SEASONAL = 0.01  # ±1% for seasonal (measured <0.06%)
+TOL_CI_SEASONAL = 0.01  # ±1% for seasonal CI bounds (measured <0.06%)
+ABS_TOL_NO_EFFECT = 0.5  # absolute tolerance when true_effect=0 (measured <0.03)
 
 
 def _load_fixture(scenario: str) -> dict:
