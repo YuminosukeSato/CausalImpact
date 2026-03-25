@@ -381,3 +381,7 @@ class TestDictValidation:
         df, pre, post = _make_test_data()
         with pytest.raises(ValueError, match="nseasons must be provided"):
             CausalImpact(df, pre, post, model_args={"season_duration": 1})
+
+    def test_model_options_rejects_mode_kwarg(self) -> None:
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            ModelOptions(mode="retrospective")  # type: ignore[call-arg]

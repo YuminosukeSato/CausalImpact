@@ -61,9 +61,21 @@ ci = CausalImpact(data, pre_period, post_period, model_args=opts)
 | `dynamic_regression` | `bool` | `False` | Enable time-varying regression coefficients |
 | `prior_type` | `str` | `"spike_slab"` | `"spike_slab"` (discrete variable selection) or `"horseshoe"` (continuous shrinkage). Horseshoe is recommended for dense DGP settings. |
 | `state_model` | `str` | `"local_level"` | `"local_level"` or `"local_linear_trend"` |
-| `mode` | `str` | `"forward"` | `"forward"` (counterfactual prediction) or `"retrospective"` (treatment indicators as covariates). Retrospective mode adds spot/persistent/trend columns to X and fits on the entire series. Effects are extracted from beta posteriors. |
 | `nseasons` | `int \| None` | `None` | Seasonal cycle count. `nseasons=1` is equivalent to no seasonal component. |
 | `season_duration` | `int \| None` | `None` | Duration of each seasonal block; defaults to 1 when `nseasons` is set. Requires `nseasons` to be set. |
+
+### Analysis Mode
+
+`mode` controls forward vs retrospective analysis. Pass via `model_args` dict (not `ModelOptions`).
+
+| Value | Description |
+|---|---|
+| `"forward"` (default) | Counterfactual prediction: fit on pre-period, predict post-period |
+| `"retrospective"` | Treatment indicators as covariates: fit on entire series |
+
+```python
+ci = CausalImpact(data, pre, post, model_args={"mode": "retrospective"})
+```
 
 ## `CausalImpactResults`
 

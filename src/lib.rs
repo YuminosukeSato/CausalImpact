@@ -71,6 +71,19 @@ fn run_gibbs_sampler(
     let y_values = extract_series(y)?;
     let y_slice = y_values.as_slice()?;
     let x_vecs = extract_covariates(x)?;
+    if !x_vecs.is_empty() {
+        let t = y_slice.len();
+        for (i, col) in x_vecs.iter().enumerate() {
+            if col.len() != t {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "covariate column {} has length {} but y has length {}",
+                    i,
+                    col.len(),
+                    t
+                )));
+            }
+        }
+    }
     let prior = sampler::PriorType::from_str(prior_type)
         .map_err(pyo3::exceptions::PyValueError::new_err)?;
 

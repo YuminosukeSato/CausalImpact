@@ -414,6 +414,27 @@ class TestSamplerKappaShrinkage:
         assert result.kappa_shrinkage == []
 
 
+class TestSamplerCovariateValidation:
+    """Covariate shape validation at PyO3 boundary."""
+
+    def test_sampler_rejects_covariate_length_mismatch(self):
+        y = [1.0, 2.0, 3.0, 4.0, 5.0]
+        x_wrong = [[0.1, 0.2, 0.3]]  # length 3, y length 5
+        with pytest.raises(
+            ValueError, match="covariate column 0 has length 3 but y has length 5"
+        ):
+            run_gibbs_sampler(
+                y=y,
+                x=x_wrong,
+                pre_end=3,
+                niter=5,
+                nwarmup=0,
+                nchains=1,
+                seed=42,
+                prior_level_sd=0.01,
+            )
+
+
 class TestSamplerConvergence:
     """Estimation accuracy on known signals."""
 
