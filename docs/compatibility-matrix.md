@@ -82,8 +82,6 @@ Features that extend beyond R CausalImpact. No R equivalent exists.
 
 | Feature | Method | Description |
 |---|---|---|
-| DATE decomposition | `ci.decompose()` | Decomposes causal effect into spot/persistent/trend (arXiv:2602.00836) |
-| Retrospective mode | `mode="retrospective"` | Treatment indicators as covariates; effects from beta posteriors (arXiv:2602.00836) |
 | Placebo test | `ci.run_placebo_test()` | Validates effect against null distribution from pre-period splits |
 | Conformal inference | `ci.run_conformal_analysis()` | Distribution-free prediction intervals (Vovk et al., 2005) |
 | DTW control selection | `select_controls()` | Automatic covariate selection via Dynamic Time Warping |

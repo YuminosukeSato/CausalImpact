@@ -384,4 +384,4 @@ class TestDictValidation:
 
     def test_model_options_rejects_mode_kwarg(self) -> None:
         with pytest.raises(TypeError, match="unexpected keyword argument"):
-            ModelOptions(mode="retrospective")  # type: ignore[call-arg]
+            ModelOptions(mode="forward")  # type: ignore[call-arg]

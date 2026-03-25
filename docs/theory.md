@@ -1,152 +1,14 @@
 # Advanced Features
 
 This library reproduces R's CausalImpact faithfully, but it doesn't stop there.
-Five additional capabilities extend the analysis beyond what R offers.
+Four additional capabilities extend the analysis beyond what R offers.
 
 | Feature | Method | What it adds |
 |---|---|---|
-| DATE decomposition | `ci.decompose()` | Break effects into spot / persistent / trend |
-| Retrospective mode | `mode="retrospective"` | Estimate effects from beta posteriors |
 | Placebo test | `ci.run_placebo_test()` | Validate effects against null distribution |
 | Conformal inference | `ci.run_conformal_analysis()` | Distribution-free prediction intervals |
 | DTW control selection | `select_controls()` | Automatic covariate selection |
 | Horseshoe prior | `ModelOptions(prior_type='horseshoe')` | Continuous shrinkage for dense DGP |
-
----
-
-## DATE Decomposition
-
-### What it does
-
-Standard CausalImpact reports a single effect trajectory: "how large is the
-effect at each time point?" DATE decomposition breaks this into three
-interpretable components:
-
-| Component | Shape | What it captures |
-|---|---|---|
-| Spot | Impulse at t=0 only | Immediate, one-time impact |
-| Persistent | Step function from t=0 onward | Permanent baseline shift |
-| Trend | Linear ramp 0, 1, 2, ... | Growing or decaying effect |
-
-Reference: Schaffe-Odeleye et al. (2026), arXiv:2602.00836.
-
-### How it works
-
-The decomposition fits a simple linear model to each MCMC sample's pointwise
-effect vector. The design matrix has three columns:
-
-```
-t=0:  [1, 1, 0]   <- spot + persistent
-t=1:  [0, 1, 1]   <- persistent + trend*1
-t=2:  [0, 1, 2]   <- persistent + trend*2
-...
-t=T:  [0, 1, T]   <- persistent + trend*T
-```
-
-A pseudoinverse is computed once and applied to all posterior samples,
-producing posterior distributions for each component's coefficient.
-
-### Usage
-
-```python
-ci = CausalImpact(data, pre_period, post_period, model_args={"seed": 42})
-dec = ci.decompose()
-
-print(f"Spot:       {dec.spot.coefficient:+.2f}  "
-      f"[{dec.spot.ci_lower:+.2f}, {dec.spot.ci_upper:+.2f}]")
-print(f"Persistent: {dec.persistent.coefficient:+.2f}  "
-      f"[{dec.persistent.ci_lower:+.2f}, {dec.persistent.ci_upper:+.2f}]")
-if dec.trend is not None:
-    print(f"Trend:      {dec.trend.coefficient:+.2f}  "
-          f"[{dec.trend.ci_lower:+.2f}, {dec.trend.ci_upper:+.2f}]")
-```
-
-### Plotting
-
-Add `"decomposition"` to the metrics list to see a fourth panel:
-
-```python
-fig = ci.plot(metrics=["original", "pointwise", "cumulative", "decomposition"])
-```
-
-The default 3-panel plot is unchanged.
-
-### Business examples
-
-| Scenario | Expected pattern |
-|---|---|
-| Ad campaign launch day | Large spot, small persistent |
-| Permanent price reduction | Small spot, large persistent |
-| New feature with gradual adoption | Small persistent, positive trend |
-| One-time promotion | Large spot, near-zero persistent and trend |
-
----
-
-## Retrospective Mode
-
-### What it does
-
-Standard (forward) mode builds a counterfactual prediction from the
-pre-period and compares it against post-period observations. Retrospective
-mode takes a different approach: it adds treatment indicator columns directly
-as covariates and fits the model on the entire time series. Treatment effects
-are extracted from the beta posteriors.
-
-| | Forward mode (default) | Retrospective mode |
-|---|---|---|
-| Model fit | Pre-period only | Entire series |
-| Effect estimation | Counterfactual subtraction | Beta posteriors for treatment columns |
-| Decomposition | Post-hoc via `ci.decompose()` | Built-in during initialization |
-| Use case | Standard causal inference | Direct effect attribution |
-
-Reference: Schaffe-Odeleye et al. (2026), arXiv:2602.00836.
-
-### Usage
-
-```python
-ci = CausalImpact(
-    data, pre_period, post_period,
-    model_args={
-        "mode": "retrospective",
-        "prior_level_sd": 0.001,
-        "niter": 2000,
-        "seed": 42,
-    },
-)
-
-# Decomposition is auto-populated
-dec = ci._decomposition
-print(f"Persistent effect: {dec.persistent.coefficient:+.2f}")
-
-# Standard summary and plot still work
-print(ci.summary())
-```
-
-### The `prior_level_sd` parameter
-
-In retrospective mode, the local level state (random walk) and the persistent
-treatment indicator (step function) compete to explain level shifts. Setting
-`prior_level_sd` to a small value (e.g. 0.001) constrains the random walk and
-forces the model to attribute level shifts to the treatment columns.
-
-```python
-# Recommended for retrospective mode
-model_args={"mode": "retrospective", "prior_level_sd": 0.001}
-```
-
-### When to use which mode
-
-Use forward mode (default) when:
-
-- You want counterfactual predictions
-- You are following the standard CausalImpact workflow
-- You want to run placebo tests or conformal analysis
-
-Use retrospective mode when:
-
-- You want spot/persistent/trend decomposition from the model itself
-- You prefer a single-model-fit approach
-- You want coefficients with direct causal interpretation
 
 ---
 
@@ -404,15 +266,3 @@ a reasonable scale to condition on.
 - Makalic, E. & Schmidt, D.F. (2015). A simple sampler for the horseshoe
   estimator. IEEE Signal Processing Letters, 23(1), 179-182.
 
----
-
-## Citation
-
-```bibtex
-@article{schaffeodeleye2026dynamic,
-  title   = {Dynamic Causal Inference with Time Series Data},
-  author  = {Schaffe-Odeleye, Ayo and others},
-  journal = {arXiv preprint arXiv:2602.00836},
-  year    = {2026}
-}
-```

@@ -11,13 +11,12 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
     from causal_impact.analysis import CausalImpactResults
-    from causal_impact.decomposition import DateDecomposition
 
 
 class Plotter:
     """Create matplotlib plots of CausalImpact results."""
 
-    VALID_METRICS = ("original", "pointwise", "cumulative", "decomposition")
+    VALID_METRICS = ("original", "pointwise", "cumulative")
     DEFAULT_METRICS = ("original", "pointwise", "cumulative")
 
     @staticmethod
@@ -27,7 +26,6 @@ class Plotter:
         time_index: pd.DatetimeIndex | pd.RangeIndex,
         pre_end: int,
         metrics: list[str] | None = None,
-        decomposition: DateDecomposition | None = None,
     ) -> Figure:
         import matplotlib.pyplot as plt
 
@@ -50,14 +48,6 @@ class Plotter:
                 Plotter._plot_pointwise(ax, post_index, results)
             elif metric == "cumulative":
                 Plotter._plot_cumulative(ax, post_index, results)
-            elif metric == "decomposition":
-                if decomposition is None:
-                    msg = (
-                        "Call ci.decompose() before plotting "
-                        "with 'decomposition' metric."
-                    )
-                    raise ValueError(msg)
-                Plotter._plot_decomposition(ax, post_index, decomposition)
 
             ax.axvline(x=intervention_idx, color="gray", linestyle="--", alpha=0.8)
 
@@ -112,21 +102,3 @@ class Plotter:
         ax.axhline(y=0, color="gray", linestyle="-", alpha=0.5)
         ax.set_ylabel("Cumulative Effect")
         ax.set_title("Cumulative")
-
-    @staticmethod
-    def _plot_decomposition(ax, post_index, decomposition):
-        components = [
-            (decomposition.spot, "#d62728", "Spot"),
-            (decomposition.persistent, "#1f77b4", "Persistent"),
-        ]
-        if decomposition.trend is not None:
-            components.append((decomposition.trend, "#2ca02c", "Trend"))
-
-        for comp, color, label in components:
-            ax.plot(post_index, comp.mean, color=color, linewidth=1, label=label)
-            ax.fill_between(post_index, comp.lower, comp.upper, alpha=0.15, color=color)
-
-        ax.axhline(y=0, color="gray", linestyle="-", alpha=0.5)
-        ax.set_ylabel("Effect Component")
-        ax.set_title("DATE Decomposition")
-        ax.legend(loc="upper left", fontsize=8)
