@@ -22,8 +22,8 @@ The format is based on Keep a Changelog.
 - "Beyond R" documentation section covering all Python-only extensions
   (DATE decomposition, retrospective mode, placebo test, conformal inference,
   DTW control selection).
-- `docs/theory.md`: mathematical background for DATE decomposition.
-- MathJax support in mkdocs for LaTeX rendering.
+- `docs/theory.md`: Advanced Features guide (DATE, retrospective, placebo,
+  conformal, DTW).
 
 ## [1.3.1] - 2026-03-23
 
