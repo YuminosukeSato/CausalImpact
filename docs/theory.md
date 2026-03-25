@@ -328,6 +328,73 @@ print(ci.posterior_shrinkage)   # E[kappa_j] per covariate
 # posterior_inclusion_probs is None for horseshoe
 ```
 
+### Implementation decisions not specified in the papers
+
+The following design choices are not prescribed by the reference papers.
+Each choice is documented here with its rationale so that reviewers can
+evaluate them independently.
+
+#### tau0 initialization
+
+The global shrinkage parameter tau^2 requires an initial value for the
+Gibbs sampler.  None of the three reference papers specify a concrete
+formula.  This implementation uses a data-adaptive heuristic:
+
+```
+y_norm = ||y_pre||_2 / sqrt(T_pre)
+tau0   = y_sd / (sqrt(k) * y_norm)
+tau^2_init = tau0^2
+```
+
+Rationale: after standardization y_sd is approximately 1.  Dividing by
+sqrt(k) prevents the global scale from growing with the number of
+covariates.  Dividing by y_norm anchors the prior scale to the signal
+magnitude.  Because tau^2 is resampled at every Gibbs iteration, the
+chain forgets the initial value within the warmup period.  If y_norm
+is near zero (constant y), tau0 falls back to 1.0 so that the prior
+remains diffuse.
+
+#### Numerical clamping on derived precision (not on raw draws)
+
+Raw InvGamma draws for lambda_j^2 and tau^2 receive no floor.  Clamping
+raw draws would distort the posterior distribution.  Instead, the derived
+precision diagonal entry is clamped:
+
+```
+lambda_tau_prod = max(lambda_j^2 * tau^2, 1e-30)   -- prevents 0-division
+prior_prec      = min(1 / lambda_tau_prod, 1e12)    -- prevents inf diagonal
+```
+
+This approach keeps the posterior intact while protecting the Cholesky
+decomposition from numerical failure.  The kappa() diagnostic uses the
+same 1e-30 floor so that shrinkage values stay consistent with the
+precision matrix actually used in the beta update.
+
+The fallback in sample_inv_gamma (returning 1e-30 for non-finite
+parameters) serves as a last-resort guard.  It triggers only under
+extreme-scale inputs (e.g. standardize_data=False with y of order 1e200)
+where the scale parameter overflows to infinity.
+
+#### Gibbs sampling order
+
+Horseshoe and spike-and-slab use different orderings within the Gibbs loop:
+
+```
+Horseshoe:   state -> beta (joint)   -> lambda2/nu -> tau2/xi -> sigma2_obs
+Spike-slab:  state -> sigma2_obs     -> beta (coordinate-wise)
+```
+
+Horseshoe samples beta jointly via a precision matrix conditioned on the
+current sigma2_obs.  After the joint beta update, sigma2_obs is resampled
+conditioned on the updated residual.  This follows Algorithm 1 of Makalic
+& Schmidt (2015) where the regression step precedes the variance update.
+
+Spike-and-slab samples sigma2_obs first because its coordinate-wise
+variable selection (gamma_j) is sensitive to cold-start: sampling beta
+with an uninformative sigma2_obs on the first iteration can cause the
+sampler to exclude all covariates.  Sampling sigma2_obs first gives beta
+a reasonable scale to condition on.
+
 ### References
 
 - Carvalho, C.M., Polson, N.G. & Scott, J.G. (2010). The horseshoe estimator

@@ -113,6 +113,19 @@ pub fn run_sampler(
     validate_inputs(y, pre_end, nchains)?;
 
     let k = x.len();
+    if k > 0 {
+        let t = y.len();
+        for (i, col) in x.iter().enumerate() {
+            if col.len() != t {
+                return Err(format!(
+                    "covariate column {} has length {} but y has length {}",
+                    i,
+                    col.len(),
+                    t
+                ));
+            }
+        }
+    }
     if k > 0 && expected_model_size <= 0.0 && !dynamic_regression && prior_type == PriorType::SpikeSlab {
         return Err("expected_model_size must be > 0 when covariates are present".to_string());
     }
@@ -507,7 +520,12 @@ fn run_single_chain_static(
     } else {
         None
     };
-    // heuristic init: tau0 = y_sd / (sqrt(k) * y_norm)
+    // Heuristic init for global shrinkage (not specified in Kohns 2022 or
+    // Makalic 2015). tau0 = y_sd / (sqrt(k) * y_norm) anchors the prior
+    // scale to signal magnitude, normalized by covariate count. After
+    // standardization y_sd ≈ 1, so tau0 ≈ 1/(sqrt(k) * y_norm). The chain
+    // forgets this initial value within the warmup period. Falls back to 1.0
+    // when y is near-constant (y_norm ≈ 0). See docs/theory.md for details.
     let mut hs = if use_horseshoe {
         let y_norm = (y[..pre_end].iter().map(|v| v * v).sum::<f64>() / pre_end as f64).sqrt();
         let tau0 = if y_norm > 1e-12 {
@@ -1393,6 +1411,10 @@ fn sample_horseshoe<R: rand::Rng>(
     hs: &mut HorseshoeState,
 ) {
     // 1. Build precision: A = X'X + diag(1 / (lambda2[j] * tau2))
+    // Clamp the derived precision diagonal, NOT the raw draws (lambda2, tau2).
+    // Clamping raw draws would distort the posterior. The floor 1e-30 prevents
+    // zero-division; the ceiling 1e12 prevents inf in the Cholesky input.
+    // kappa() uses the same 1e-30 floor to stay consistent with the actual A.
     let mut precision = vec![vec![0.0; k]; k];
     for i in 0..k {
         for j in 0..k {
@@ -2491,5 +2513,35 @@ mod tests {
         let val = sample_sigma2_seasonal(&mut rng, 0.0, 0, 1e-10, 1.0);
         assert!(val.is_finite(), "must be finite for tiny prior_level_sd");
         assert!(val > 0.0);
+    }
+
+    #[test]
+    fn test_run_sampler_rejects_covariate_length_mismatch() {
+        let y: Vec<f64> = (0..20).map(|i| 10.0 + 0.1 * i as f64).collect();
+        let x_short = vec![(0..10).map(|i| i as f64 * 0.1).collect()];
+        let result = run_sampler(
+            &y,
+            x_short,
+            15,
+            10,
+            5,
+            1,
+            42,
+            0.01,
+            1.0,
+            None,
+            None,
+            false,
+            "local_level",
+            PriorType::SpikeSlab,
+        );
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err but got Ok"),
+        };
+        assert!(
+            err.contains("covariate column 0 has length 10 but y has length 20"),
+            "unexpected error message: {err}"
+        );
     }
 }
