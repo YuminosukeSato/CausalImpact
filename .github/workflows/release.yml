@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build wheels for (e.g. v1.7.0). Skips semantic-release."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -17,8 +22,8 @@ jobs:
     permissions:
       contents: write
     outputs:
-      released: ${{ steps.semantic-release.outputs.released || 'false' }}
-      tag: ${{ steps.semantic-release.outputs.tag }}
+      released: ${{ steps.resolve.outputs.released }}
+      tag: ${{ steps.resolve.outputs.tag }}
     steps:
       - name: Checkout release branch
         uses: actions/checkout@v4
@@ -26,16 +31,33 @@ jobs:
           ref: ${{ github.ref_name }}
 
       - name: Force branch to workflow sha
+        if: inputs.tag == ''
         run: git reset --hard ${{ github.sha }}
 
       - name: Run semantic release
         id: semantic-release
+        if: inputs.tag == ''
         uses: python-semantic-release/python-semantic-release@v10.5.3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           git_committer_name: github-actions
           git_committer_email: actions@users.noreply.github.com
           build: false
+
+      - name: Resolve release outputs
+        id: resolve
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          SR_RELEASED: ${{ steps.semantic-release.outputs.released }}
+          SR_TAG: ${{ steps.semantic-release.outputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "released=${SR_RELEASED:-false}" >> "$GITHUB_OUTPUT"
+            echo "tag=$SR_TAG" >> "$GITHUB_OUTPUT"
+          fi
 
   build-wheels:
     needs: release
