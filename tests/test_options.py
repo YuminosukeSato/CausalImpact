@@ -350,7 +350,7 @@ class TestBackwardCompatibility:
 
 
 class TestDictValidation:
-    """dict 経路でも ModelOptions.__post_init__ と同等の動的バリデーションが行われることを確認する。"""
+    """dict path runs ModelOptions.__post_init__ validation."""
 
     @pytest.mark.parametrize(
         ("key", "bad_value", "match"),

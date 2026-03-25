@@ -700,7 +700,7 @@ class TestHorseshoeDenseDGPComparison:
         assert mse_hs <= mse_ss * 1.5
 
     def test_horseshoe_dense_dgp_predictions_finite_and_within_3sd(self):
-        """Predictions on dense DGP (5 signal + 5 noise) should be finite and reasonable."""
+        """Dense DGP (5 signal + 5 noise): finite and reasonable."""
         y, x, pre_end = _make_data_k10_dense()
         samples = _run_sampler_with_horseshoe(
             y, x, pre_end, niter=500, nwarmup=250
