@@ -24,8 +24,7 @@ ci = CausalImpact(data, pre_period, post_period, model_args=None, alpha=0.05)
 |---|---|---|
 | `summary(output="summary", digits=2)` | `str` | Tabular summary of causal effects. Set `output="report"` for narrative form. |
 | `report()` | `str` | Narrative interpretation of results (shortcut for `summary(output="report")`) |
-| `plot(metrics=None)` | `Figure` | Matplotlib figure with original/pointwise/cumulative panels. Pass a list like `["original", "cumulative"]` to select panels. Add `"decomposition"` for the DATE panel. |
-| `decompose(alpha=None)` | `DateDecomposition` | DATE decomposition of pointwise effects into spot/persistent/trend. Call before plotting with `"decomposition"` metric. |
+| `plot(metrics=None)` | `Figure` | Matplotlib figure with original/pointwise/cumulative panels. Pass a list like `["original", "cumulative"]` to select panels. |
 | `run_placebo_test(n_placebos=None, min_pre_length=3)` | `PlaceboTestResults` | Validates the causal effect against a null distribution from pre-period splits. |
 | `run_conformal_analysis(alpha=None)` | `ConformalResults` | Distribution-free prediction intervals via split conformal inference. |
 
@@ -63,19 +62,6 @@ ci = CausalImpact(data, pre_period, post_period, model_args=opts)
 | `state_model` | `str` | `"local_level"` | `"local_level"` or `"local_linear_trend"` |
 | `nseasons` | `int \| None` | `None` | Seasonal cycle count. `nseasons=1` is equivalent to no seasonal component. |
 | `season_duration` | `int \| None` | `None` | Duration of each seasonal block; defaults to 1 when `nseasons` is set. Requires `nseasons` to be set. |
-
-### Analysis Mode
-
-`mode` controls forward vs retrospective analysis. Pass via `model_args` dict (not `ModelOptions`).
-
-| Value | Description |
-|---|---|
-| `"forward"` (default) | Counterfactual prediction: fit on pre-period, predict post-period |
-| `"retrospective"` | Treatment indicators as covariates: fit on entire series |
-
-```python
-ci = CausalImpact(data, pre, post, model_args={"mode": "retrospective"})
-```
 
 ## `CausalImpactResults`
 
@@ -138,7 +124,6 @@ print(ci.posterior_shrinkage)   # mean(kappa_j), 0=included 1=shrunk
 ### Incompatible combinations
 
 - `prior_type='horseshoe'` + `dynamic_regression=True` raises `ValueError`
-- `prior_type='horseshoe'` + `mode='retrospective'` raises `ValueError`
 
 ### References
 
@@ -149,54 +134,6 @@ print(ci.posterior_shrinkage)   # mean(kappa_j), 0=included 1=shrunk
 ---
 
 ## Beyond R Extensions
-
-### Retrospective Mode
-
-In retrospective mode (`mode="retrospective"`), treatment indicator columns
-(spot, persistent, trend) are added as covariates and the BSTS model is fit on
-the entire time series. Treatment effects are extracted directly from the beta
-posteriors for the treatment columns, rather than from counterfactual predictions.
-
-Key differences from forward mode:
-
-- The model fits on all data (pre + post), not just pre-period
-- Spike-and-slab variable selection is auto-disabled
-- `ci._decomposition` is populated automatically (no need to call `ci.decompose()`)
-- `ci.decompose()` is still available but uses the forward-mode OLS projection
-
-Reference: Schaffe-Odeleye et al. (2026), arXiv:2602.00836.
-
-### `DateDecomposition`
-
-Returned by `ci.decompose()` or auto-populated in retrospective mode.
-A frozen dataclass containing the DATE decomposition results.
-
-Reference: Schaffe-Odeleye et al. (2026), arXiv:2602.00836.
-
-| Field | Type | Description |
-|---|---|---|
-| `spot` | `EffectComponent` | Immediate impulse effect at intervention |
-| `persistent` | `EffectComponent` | Sustained level shift from intervention onward |
-| `trend` | `EffectComponent \| None` | Linearly growing/decaying effect. `None` when `T_post < 3`. |
-| `residual_mean` | `ndarray` | Mean residual trajectory after decomposition |
-| `design_matrix` | `ndarray` | The D matrix used for OLS projection |
-| `alpha` | `float` | Significance level used for credible intervals |
-
-### `EffectComponent`
-
-Each component of the DATE decomposition.
-
-| Field | Type | Description |
-|---|---|---|
-| `name` | `str` | Component name: `"spot"`, `"persistent"`, or `"trend"` |
-| `coefficient` | `float` | Posterior mean of the OLS coefficient |
-| `ci_lower` | `float` | Lower credible interval bound on coefficient |
-| `ci_upper` | `float` | Upper credible interval bound on coefficient |
-| `samples` | `ndarray` | Per-sample trajectories, shape `(n_samples, T_post)` |
-| `coefficients` | `ndarray` | OLS coefficient per sample, shape `(n_samples,)` |
-| `mean` | `ndarray` | Posterior mean trajectory, shape `(T_post,)` |
-| `lower` | `ndarray` | Lower CI on trajectory, shape `(T_post,)` |
-| `upper` | `ndarray` | Upper CI on trajectory, shape `(T_post,)` |
 
 ### `PlaceboTestResults`
 

@@ -6,6 +6,14 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Removed
+
+- DATE decomposition (`ci.decompose()`, `DateDecomposition`, `EffectComponent`).
+  The linear trend basis poses confounding risk with seasonal patterns; removed
+  to prevent misinterpretation.
+- Retrospective mode (`mode="retrospective"`): treatment indicator covariate approach.
+  Removed along with DATE decomposition.
+
 ### Added
 
 - Horseshoe prior as alternative to spike-and-slab via `ModelOptions(prior_type='horseshoe')`

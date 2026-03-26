@@ -460,30 +460,6 @@ class TestHorseshoeValidation:
         with pytest.raises(ValueError, match="dynamic_regression"):
             ModelOptions(prior_type="horseshoe", dynamic_regression=True)
 
-    def test_horseshoe_with_retrospective_mode_raises_value_error(self):
-        rng = np.random.default_rng(42)
-        n = 80
-        dates = pd.date_range("2020-01-01", periods=n, freq="D")
-        x = rng.normal(5, 1, n)
-        y = 1.0 * x + rng.normal(0, 0.5, n)
-        y[56:] += 3.0
-        df = pd.DataFrame({"y": y, "x1": x}, index=dates)
-        pre = ["2020-01-01", "2020-02-25"]
-        post = ["2020-02-26", "2020-03-20"]
-        with pytest.raises(ValueError, match="retrospective"):
-            CausalImpact(
-                df,
-                pre,
-                post,
-                model_args={
-                    "niter": 100,
-                    "nwarmup": 50,
-                    "seed": 1,
-                    "prior_type": "horseshoe",
-                    "mode": "retrospective",
-                },
-            )
-
     def test_horseshoe_nan_in_pre_period_raises_error(self):
         y = [10.0, 11.0, float("nan"), 13.0, 14.0, 15.0, 16.0, 17.0]
         x = [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]]
